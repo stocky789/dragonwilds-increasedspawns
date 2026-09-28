@@ -2,15 +2,15 @@
 
 All notable changes to **Dragonwilds Increased Dragon Wolf Spawns** are recorded here in clear, non-technical language suitable for release notes.
 
-This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release tags use a `v` prefix (for example `v0.1.0`). Release sections use the same four buckets throughout: **Major Feature**, **Minor Feature**, **Bug Fixes**, and **Miscellaneous**.
+This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release tags use a `v` prefix (for example `v1.0.0`). Release sections use the same four buckets throughout: **Major Feature**, **Minor Feature**, **Bug Fixes**, and **Miscellaneous**.
 
-> **Version history note:** This first version is experimental and has not been published. Its new fixed-spawn changes have passed structural and package checks and loaded on a Linux server, but have not been checked in game. Builds use the newest numbered changelog heading (`0.1.0` → `v0.1.0`).
+> **Version history note:** The fixed-spawn changes have passed structural and package checks and loaded on a Linux server, but have not been checked in game. Builds use the newest numbered changelog heading (`1.0.0` → `v1.0.0`).
 
 ## [Unreleased]
 
 > **Maintainers:** Leave this section empty. Append new entries under the **latest numbered version** heading below (the first `## [x.y.z]` block after this one) until that version is tagged and published.
 
-## [0.1.0]
+## [1.0.0]
 
 ### Major Feature
 
@@ -23,6 +23,6 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Miscellaneous
 
-- Added an installable server pak and automated versioned prerelease builds.
+- Added an installable server pak and automated versioned releases.
 - Added separate Linux server and Windows packages.
 - The updated Linux package mounted and loaded an existing dedicated-server world. An in-game wolf count is still needed.

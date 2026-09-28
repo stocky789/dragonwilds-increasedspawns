@@ -14,7 +14,7 @@ The mod replaces 19 data tables and 15 world cells, so another mod replacing any
 
 ## Build and release
 
-Install [retoc v0.1.5](https://github.com/trumank/retoc/releases/tag/v0.1.5) and run `python3 build.py`. The ZIP is written to `dist/` and is versioned from the first numbered heading in [CHANGELOG.md](CHANGELOG.md). The GitHub workflow builds on pull requests and pushes to `main`. After an in-game check, run the workflow manually on `main` with `publish` enabled to publish the changelog version as a prerelease.
+Install [retoc v0.1.5](https://github.com/trumank/retoc/releases/tag/v0.1.5) and run `python3 build.py`. The ZIP is written to `dist/` and is versioned from the first numbered heading in [CHANGELOG.md](CHANGELOG.md). The GitHub workflow builds on pull requests and pushes to `main`. A push to `main` publishes that changelog version as a GitHub release if its tag has not already been released. Bump the newest numbered heading for the next release; a manual workflow run on `main` can retry a failed publication.
 
 `source/linux/` and `source/windows/` each contain 19 edited cooked data tables and 15 edited world cells. The fixed points were duplicated with the small [fixed-spawn tool](fixed_spawns/Program.cs) and packed with retoc. The assets are Jagex game content; this is a free community mod and is not affiliated with Jagex.
 

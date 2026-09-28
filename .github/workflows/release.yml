@@ -5,12 +5,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      publish:
-        description: Publish the changelog version after an in-game check
-        type: boolean
-        required: true
-        default: false
 
 permissions:
   contents: read
@@ -43,9 +37,10 @@ jobs:
             dist/release-notes.md
 
   release:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.publish
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: build
     runs-on: ubuntu-latest
+    concurrency: release
     permissions:
       contents: write
     steps:
@@ -60,7 +55,7 @@ jobs:
         run: |
           version="$(python3 build.py --version)"
           if gh release view "v$version" >/dev/null 2>&1; then
-            echo "v$version already exists; bump CHANGELOG.md for another release"
-            exit 1
+            echo "v$version already released; bump CHANGELOG.md for the next release"
+            exit 0
           fi
-          gh release create "v$version" "dist/DragonWolfSpawns-LinuxServer-v$version.zip" "dist/DragonWolfSpawns-Windows-v$version.zip" --title "Dragon Wolf Spawns v$version" --notes-file dist/release-notes.md --target "$GITHUB_SHA" --prerelease
+          gh release create "v$version" "dist/DragonWolfSpawns-LinuxServer-v$version.zip" "dist/DragonWolfSpawns-Windows-v$version.zip" --title "Dragon Wolf Spawns v$version" --notes-file dist/release-notes.md --target "$GITHUB_SHA"

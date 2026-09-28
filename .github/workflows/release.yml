@@ -1,0 +1,61 @@
+name: Build and release
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install retoc
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.1.5 -R trumank/retoc -p 'retoc_cli-x86_64-unknown-linux-gnu.tar.xz*' -D "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP"
+          sha256sum -c retoc_cli-x86_64-unknown-linux-gnu.tar.xz.sha256
+          tar -xf retoc_cli-x86_64-unknown-linux-gnu.tar.xz
+          echo "$RUNNER_TEMP/retoc_cli-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
+      - name: Build and verify pak
+        run: |
+          python3 -m unittest -q
+          python3 build.py
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dragon-wolf-spawns
+          if-no-files-found: error
+          path: |
+            dist/DragonWolfSpawns-*-v*.zip
+            dist/release-notes.md
+
+  release:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dragon-wolf-spawns
+          path: dist
+      - name: Publish changelog version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(python3 build.py --version)"
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "v$version already released; bump CHANGELOG.md for the next release"
+            exit 0
+          fi
+          gh release create "v$version" "dist/DragonWolfSpawns-LinuxServer-v$version.zip" "dist/DragonWolfSpawns-Windows-v$version.zip" --title "Dragon Wolf Spawns v$version" --notes-file dist/release-notes.md --target "$GITHUB_SHA"

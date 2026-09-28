@@ -1,48 +1,23 @@
-# Dragonwilds Increased Spawns
+# Dragonwilds Increased Dragon Wolf Spawns
 
-An experimental mod project to add more **Dragon Wolves** across their existing regions, without changing loot or combat.
+This experimental server mod triples Dragon Wolves at the game's existing spawn locations. It increases 20 dynamic wolf groups in 19 spawn tables and adds two nearby points beside each of 37 fixed wolf points across 15 world cells. The game's encounter chance, night conditions, power levels, drops, and respawn timers remain as authored. Native population limits can reduce the number visible at once.
 
-## Current implementation
+The mod is a UE 5.6 IoStore pak trio, so it does not need UE4SS or RuneSchema. There are separate Linux server and Windows builds because their cooked asset formats differ. The assets were taken from Linux server build **25465077** and Windows client build **25466454** (Dragonwilds 1.0). Both archives pass pack verification and asset readback. The updated Linux pak mounted and loaded an existing dedicated-server world on 28 September 2026. Its visible wolf count has not yet been checked in game.
 
-[generate.py](generate.py) turns surveyed vanilla spawn locations into [RuneSchema](https://github.com/gh0sted5456-us/RuneSchema) AI spawn-point definitions. For each vanilla anchor you provide, it adds **two** persistent Dragon Wolf spawn points, 25 and 50 metres along a chosen bearing. The original point remains: this targets three spawn points per anchor across a wider area.
+## Install
 
-This is **not a tested or ready-to-install mod**. We still need actual Dragon Wolf spawn coordinates, their regional power levels, and an in-game test. The published 1.0 class catalog lists the Dragon Wolf path used in the generator but labels its behavior unverified. The game may also limit live enemy population independently of spawn-point count, so three points may not yield three times as many wolves.
+1. Stop the server and back up its world save.
+2. Extract the **LinuxServer** ZIP for a Linux dedicated server, or the **Windows** ZIP for a Windows server. Put all three `DragonWolfSpawns_P` files (`.pak`, `.utoc`, `.ucas`) directly in `RSDragonwilds/Content/Paks/~mods/` on the server. Create `~mods` if necessary.
+3. Start the server. Check its logs for the pak being mounted, then visit a known Dragon Wolf area and compare group sizes over several encounters.
 
-## Supply surveyed anchors
+The mod replaces 19 data tables and 15 world cells, so another mod replacing any of those assets will conflict. Remove all three files to uninstall. Rebuild and retest after a game update that changes those assets.
 
-Create an `anchors.json` containing a JSON array. For each **real, existing** Dragon Wolf spawn you inspect in the game, supply:
+## Build and release
 
-- `id`: unique short label using letters, digits, underscores or hyphens.
-- `x`, `y`: Unreal world coordinates in centimetres.
-- `bearing_degrees`: direction from the original spawn into valid terrain **within the same Dragon Wolf region** (0 = +X, 90 = +Y). Check both points at 25 and 50 metres for navigable ground, safe-area boundaries and nearby bases.
-- `power_level` (optional): regional power level from the vanilla wolf or spawn point; omit if you have not verified it.
+Install [retoc v0.1.5](https://github.com/trumank/retoc/releases/tag/v0.1.5) and run `python3 build.py`. The ZIP is written to `dist/` and is versioned from the first numbered heading in [CHANGELOG.md](CHANGELOG.md). The GitHub workflow builds on pull requests and pushes to `main`. A push to `main` publishes that changelog version as a GitHub release if its tag has not already been released. Bump the newest numbered heading for the next release; a manual workflow run on `main` can retry a failed publication.
 
-Example **format only**; these are invented coordinates and must not be installed as a mod:
+`source/linux/` and `source/windows/` each contain 19 edited cooked data tables and 15 edited world cells. The fixed points were duplicated with the small [fixed-spawn tool](fixed_spawns/Program.cs) and packed with retoc. The assets are Jagex game content; this is a free community mod and is not affiliated with Jagex.
 
-```json
-[
-  {
-    "id": "surveyed_wolf_01",
-    "x": 100000,
-    "y": 200000,
-    "bearing_degrees": 90,
-    "power_level": 5
-  }
-]
-```
+## Verification still needed
 
-Run `python generate.py anchors.json`. It writes `RuneSchema/mods/DragonWolfSpawns/spawns/dragon_wolves.json`. Review every output position before installation. RuneSchema traces `"$"` to the ground and uses the game's native AI spawn-point rules.
-
-## Multiplayer and server compatibility
-
-[RuneSchema's authoring guide](https://github.com/gh0sted5456-us/RuneSchema/blob/main/source/AUTHORING-GUIDE.md) instructs mod authors to install the same content mod on the **server and every client** for multiplayer. Its released runtime is a UE4SS DLL for the Windows game layout. This project has **not** been validated on a dedicated server, and a Linux dedicated server cannot simply load that Windows DLL. Server-only deployment and Linux support need separate investigation.
-
-For a Windows test server, install a compatible UE4SS and RuneSchema build, then copy the generated `DragonWolfSpawns` directory under its `RuneSchema/mods/` folder and enable `DragonWolfSpawns : 1` in `RuneSchema/mods/runeschema.txt`. Install matching content on clients as RuneSchema requires. Back up the world before the first test. Inspect `UE4SS.log` for loader errors, verify spawn positions and power levels in game, then count live wolves over repeated visits.
-
-## References
-
-- [RuneSchema spawn loader format](https://github.com/gh0sted5456-us/RuneSchema/blob/main/source/loaders/spawns.md)
-- [RuneSchema spawn schema](https://github.com/gh0sted5456-us/RuneSchema/blob/main/docs/schemas/spawns.schema.json)
-- [Dragon Wolf class catalog](https://github.com/RSDWArchive/RSDWDevKit/blob/main/RSDWTools/json/SpawnCatalog.json)
-
-RuneScape: Dragonwilds is a Jagex game. This is an independent community project.
+The Linux server loaded the updated pak and existing world without mod-specific asset errors. The earlier dynamic-only build did not increase wolves at a known Dragon's Run spot; that fixed-spawn spot now has two additional points per original in the package. An in-game count is still needed there. The Windows dedicated-server package has not been run.

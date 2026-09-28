@@ -1,0 +1,19 @@
+# Local game and mod loader files
+RSDragonwilds/
+ue4ss/
+UE4SS.log
+*.pak
+*.ucas
+*.utoc
+*.exe
+*.dll
+*.pdb
+
+# Local build and editor output
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+.vs/
+.idea/
+.vscode/

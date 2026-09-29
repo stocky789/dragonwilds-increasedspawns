@@ -7,14 +7,22 @@ using UAssetAPI.PropertyTypes.Structs;
 using UAssetAPI.UnrealTypes;
 using UAssetAPI.Unversioned;
 
-// Adds three corpse cotton plants around each original plant in one world cell. Linux exports are
-// parsed; Windows exports are unversioned, so their references are byte-patched and checked against
-// the references found in the Linux copy of the same cell.
+// Adds corpse cotton plants at fixed spots in one world cell. Linux exports are parsed; Windows
+// exports are unversioned, so their references are byte-patched and checked against the references
+// found in the Linux copy of the same cell.
 if (args.Length != 5) throw new ArgumentException("Usage: CorpseCotton MAPPINGS.usmap LINUX_IN.umap LINUX_OUT.umap WINDOWS_IN.umap WINDOWS_OUT.umap");
 const string Prefix = "BP_Plant_Explosive_CorpseCotton_C_";
 const string Label = "BP_Plant_Explosive_CorpseCotton";
-const int Copies = 3;
-const double Radius = 250;
+// Open graveyard floor near Bleakfields Valley, cell 58S1H0LFS081MPH4I8XX6PTN2. Each spot is a baked
+// navmesh floor point at least 2.5 m from graves, fences, rubble and rocks; Z is the navmesh height
+// minus 2, the offset of the original upright plants on the same floor.
+(double X, double Y, double Z)[] Spots =
+[
+    (128900, 13600, -3725), (128700, 16600, -3741), (133600, 12600, -3711), (135400, 14900, -3718),
+    (131300, 18400, -3726), (130500, 14900, -3736), (138700, 17700, -3732), (135400, 16400, -3732),
+    (128800, 15100, -3729), (130600, 17000, -3731), (138700, 16200, -3730), (132800, 13800, -3756),
+    (135700, 18200, -3715), (134000, 14400, -3724), (130200, 13500, -3740),
+];
 var usmap = new Usmap(args[0]);
 var linuxRefs = Clone(args[1], args[2], null);
 Clone(args[3], args[4], linuxRefs);
@@ -30,88 +38,84 @@ Dictionary<string, List<string>> Clone(string input, string output, Dictionary<s
     if (originals.Length == 0) throw new InvalidDataException("No corpse cotton plants in map");
     var refs = new Dictionary<string, List<string>>();
     var windowsRefs = linux ? null : RefOffsets(asset, originals);
-    var expected = new List<(string Name, Vector Position, Dictionary<string, List<string>> Refs)>();
+    var expected = new List<(string Name, Vector Position, Dictionary<string, List<string>> Refs, Dictionary<string, int[]> Offsets)>();
     var initialActors = level.Actors.Count;
 
-    foreach (var actor in originals)
+    // Clone the untilted originals so every copy stands upright.
+    var upright = originals.Where(i => Root(asset, i).Data.All(p => p.Name.ToString() != "RelativeRotation")).ToArray();
+    if (upright.Length == 0) throw new InvalidDataException("No upright corpse cotton plant to copy");
+    for (var copy = 1; copy <= Spots.Length; copy++)
     {
+        var actor = upright[(copy - 1) % upright.Length];
         var subtree = Subtree(asset, actor);
         var rootOld = subtree.Single(i => asset.Exports[i - 1].ObjectName.ToString() == "DefaultSceneRoot");
-        var (origin, up, _) = Transform(Parse<NormalExport>(asset, (RawExport)asset.Exports[rootOld - 1]));
         if (!level.Actors.Any(a => a.Index == actor)) throw new InvalidDataException($"Unlisted plant {asset.Exports[actor - 1].ObjectName}");
-        for (var copy = 1; copy <= Copies; copy++)
+        var map = subtree.Select((old, k) => (old, k)).ToDictionary(x => x.old, x => asset.Exports.Count + 1 + x.k);
+        var id = $"{Path.GetFileNameWithoutExtension(input)}:{asset.Exports[actor - 1].ObjectName}:{copy}";
+        var name = $"{asset.Exports[actor - 1].ObjectName}_CCMod{copy}";
+        var position = new Vector(Spots[copy - 1].X, Spots[copy - 1].Y, Spots[copy - 1].Z);
+        var cloneRefs = new Dictionary<string, List<string>>();
+        var cloneOffsets = new Dictionary<string, int[]>();
+        foreach (var old in subtree)
         {
-            var map = subtree.Select((old, k) => (old, k)).ToDictionary(x => x.old, x => asset.Exports.Count + 1 + x.k);
-            var id = $"{Path.GetFileNameWithoutExtension(input)}:{asset.Exports[actor - 1].ObjectName}:{copy}";
-            var name = $"{asset.Exports[actor - 1].ObjectName}_CCMod{copy}";
-            var angle = 2 * Math.PI * (copy - 1) / Copies;
-            var (dx, dy) = (Radius * Math.Cos(angle), Radius * Math.Sin(angle));
-            // Follow the slope the original plant is tilted to.
-            var position = new Vector(origin.X + dx, origin.Y + dy, origin.Z - (up.X * dx + up.Y * dy) / up.Z);
-            var cloneRefs = new Dictionary<string, List<string>>();
-            foreach (var old in subtree)
+            var source = (RawExport)asset.Exports[old - 1];
+            var path = RelativeName(asset, actor, old);
+            var key = $"{asset.Exports[actor - 1].ObjectName}/{path}";
+            Export clone;
+            if (old == rootOld || linux)
             {
-                var source = (RawExport)asset.Exports[old - 1];
-                var path = RelativeName(asset, actor, old);
-                var key = $"{asset.Exports[actor - 1].ObjectName}/{path}";
-                Export clone;
-                if (old == rootOld || linux)
+                var parsed = Parse<NormalExport>(asset, source);
+                var found = new List<string>();
+                foreach (var p in parsed.Data) Walk(p, x => Track(x, map, asset, actor, found));
+                if (old == rootOld)
                 {
-                    var parsed = Parse<NormalExport>(asset, source);
-                    var found = new List<string>();
-                    foreach (var p in parsed.Data) Walk(p, x => Track(x, map, asset, actor, found));
-                    if (old == rootOld)
-                    {
-                        if (found.Count != 0) throw new InvalidDataException("Plant root references its actor");
-                        SetLocation(parsed, position);
-                    }
-                    if (old == actor) parsed.Extras = RewriteActorTail(parsed.Extras, id, copy);
-                    if (linux && copy == 1) refs[key] = found.Order().ToList();
-                    clone = parsed;
+                    if (found.Count != 0) throw new InvalidDataException("Plant root references its actor");
+                    SetLocation(parsed, position);
                 }
-                else
-                {
-                    var data = source.Data.ToArray();
-                    var offsets = windowsRefs![(actor, path)];
-                    var names = offsets.Select(at => RelativeName(asset, actor, BitConverter.ToInt32(data, at))).Order();
-                    if (!names.SequenceEqual(reference![key])) throw new InvalidDataException($"Windows references in {key} do not match Linux");
-                    foreach (var at in offsets) BitConverter.GetBytes(map[BitConverter.ToInt32(data, at)]).CopyTo(data, at);
-                    if (old == actor) data = RewriteActorTail(data, id, copy);
-                    clone = (RawExport)source.Clone();
-                    ((RawExport)clone).Data = data;
-                }
-                clone.ObjectName = old == actor ? FName.FromString(asset, name) : source.ObjectName;
-                clone.OuterIndex = Remap(source.OuterIndex, map);
-                clone.SerializationBeforeSerializationDependencies = source.SerializationBeforeSerializationDependencies.Select(x => Remap(x, map)).ToList();
-                clone.CreateBeforeSerializationDependencies = source.CreateBeforeSerializationDependencies.Select(x => Remap(x, map)).ToList();
-                clone.SerializationBeforeCreateDependencies = source.SerializationBeforeCreateDependencies.Select(x => Remap(x, map)).ToList();
-                clone.CreateBeforeCreateDependencies = source.CreateBeforeCreateDependencies.Select(x => Remap(x, map)).ToList();
-                asset.Exports.Add(clone);
-                cloneRefs[path] = (linux ? refs : reference!)[key];
+                if (old == actor) parsed.Extras = RewriteActorTail(parsed.Extras, id, copy);
+                if (linux) refs[key] = found.Order().ToList();
+                clone = parsed;
             }
-            var newActor = new FPackageIndex(map[actor]);
-            level.Actors.Add(newActor);
-            foreach (var deps in new[] { level.SerializationBeforeSerializationDependencies, level.CreateBeforeSerializationDependencies, level.SerializationBeforeCreateDependencies, level.CreateBeforeCreateDependencies })
-                if (deps.Any(d => d.Index == actor)) deps.Add(newActor);
-            expected.Add((name, position, cloneRefs));
+            else
+            {
+                var data = source.Data.ToArray();
+                var offsets = cloneOffsets[path] = windowsRefs![(actor, path)];
+                var names = offsets.Select(at => RelativeName(asset, actor, BitConverter.ToInt32(data, at))).Order();
+                if (!names.SequenceEqual(reference![key])) throw new InvalidDataException($"Windows references in {key} do not match Linux");
+                foreach (var at in offsets) BitConverter.GetBytes(map[BitConverter.ToInt32(data, at)]).CopyTo(data, at);
+                if (old == actor) data = RewriteActorTail(data, id, copy);
+                clone = (RawExport)source.Clone();
+                ((RawExport)clone).Data = data;
+            }
+            clone.ObjectName = old == actor ? FName.FromString(asset, name) : source.ObjectName;
+            clone.OuterIndex = Remap(source.OuterIndex, map);
+            clone.SerializationBeforeSerializationDependencies = source.SerializationBeforeSerializationDependencies.Select(x => Remap(x, map)).ToList();
+            clone.CreateBeforeSerializationDependencies = source.CreateBeforeSerializationDependencies.Select(x => Remap(x, map)).ToList();
+            clone.SerializationBeforeCreateDependencies = source.SerializationBeforeCreateDependencies.Select(x => Remap(x, map)).ToList();
+            clone.CreateBeforeCreateDependencies = source.CreateBeforeCreateDependencies.Select(x => Remap(x, map)).ToList();
+            asset.Exports.Add(clone);
+            cloneRefs[path] = (linux ? refs : reference!)[key];
         }
+        var newActor = new FPackageIndex(map[actor]);
+        level.Actors.Add(newActor);
+        foreach (var deps in new[] { level.SerializationBeforeSerializationDependencies, level.CreateBeforeSerializationDependencies, level.SerializationBeforeCreateDependencies, level.CreateBeforeCreateDependencies })
+            if (deps.Any(d => d.Index == actor)) deps.Add(newActor);
+        expected.Add((name, position, cloneRefs, cloneOffsets));
     }
 
     Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
     asset.Write(output);
     Verify(output, linux, initialActors, expected);
-    Console.WriteLine($"{(linux ? "linux" : "windows")} {Path.GetFileName(input)}: {originals.Length} corpse cotton plants -> {originals.Length * (Copies + 1)}");
+    Console.WriteLine($"{(linux ? "linux" : "windows")} {Path.GetFileName(input)}: {originals.Length} corpse cotton plants -> {originals.Length + Spots.Length}");
     return refs;
 }
 
-void Verify(string output, bool linux, int initialActors, List<(string Name, Vector Position, Dictionary<string, List<string>> Refs)> expected)
+void Verify(string output, bool linux, int initialActors, List<(string Name, Vector Position, Dictionary<string, List<string>> Refs, Dictionary<string, int[]> Offsets)> expected)
 {
     var check = Load(output);
     var level = Parse<LevelExport>(check, (RawExport)check.Exports.Single(e => e.ObjectName.ToString() == "PersistentLevel"));
     if (level.Actors.Count != initialActors + expected.Count) throw new InvalidDataException("Plant actor count did not survive serialization");
     var labels = new HashSet<string>();
-    var clones = expected.Select(item => check.Exports.FindIndex(e => e.ObjectName.ToString() == item.Name) + 1).ToArray();
-    var windowsRefs = linux ? null : RefOffsets(check, clones);
     foreach (var item in expected)
     {
         var actor = check.Exports.FindIndex(e => e.ObjectName.ToString() == item.Name) + 1;
@@ -127,11 +131,11 @@ void Verify(string output, bool linux, int initialActors, List<(string Name, Vec
             if (linux || path == "DefaultSceneRoot")
                 foreach (var p in Parse<NormalExport>(check, raw).Data) Walk(p, x => Track(x, own, check, actor, found));
             else
-                found = windowsRefs![(actor, path)].Select(at => RelativeName(check, actor, BitConverter.ToInt32(raw.Data, at))).ToList();
+                found = item.Offsets[path].Select(at => RelativeName(check, actor, BitConverter.ToInt32(raw.Data, at))).ToList();
             if (!found.Order().SequenceEqual(item.Refs[path])) throw new InvalidDataException($"Bad references in {item.Name} {path}");
         }
         var root = subtree.Single(i => check.Exports[i - 1].ObjectName.ToString() == "DefaultSceneRoot");
-        var (position, _, _) = Transform(Parse<NormalExport>(check, (RawExport)check.Exports[root - 1]));
+        var position = Location(Parse<NormalExport>(check, (RawExport)check.Exports[root - 1]));
         if (Math.Abs(position.X - item.Position.X) + Math.Abs(position.Y - item.Position.Y) + Math.Abs(position.Z - item.Position.Z) > .01) throw new InvalidDataException($"Bad position for {item.Name}");
         var data = linux ? Parse<NormalExport>(check, (RawExport)check.Exports[actor - 1]).Extras : ((RawExport)check.Exports[actor - 1]).Data;
         if (!labels.Add(Convert.ToHexString(data[^32..^16]))) throw new InvalidDataException("Duplicate plant GUID");
@@ -204,16 +208,13 @@ static void Walk(PropertyData property, Func<FPackageIndex, FPackageIndex> remap
     }
 }
 
-static (Vector Position, Vector Up, FRotator Rotation) Transform(NormalExport root)
+static NormalExport Root(UAsset asset, int actor) =>
+    Parse<NormalExport>(asset, (RawExport)asset.Exports.Single(e => e.OuterIndex.Index == actor && e.ObjectName.ToString() == "DefaultSceneRoot"));
+
+static Vector Location(NormalExport root)
 {
     var location = ((VectorPropertyData)((StructPropertyData)root.Data.Single(p => p.Name.ToString() == "RelativeLocation")).Value.Single()).Value;
-    var rotation = root.Data.FirstOrDefault(p => p.Name.ToString() == "RelativeRotation") is StructPropertyData r ? ((RotatorPropertyData)r.Value.Single()).Value : new FRotator(0, 0, 0);
-    double Rad(double degrees) => degrees * Math.PI / 180;
-    var (sp, cp, sy, cy, sr, cr) = (Math.Sin(Rad(rotation.Pitch)), Math.Cos(Rad(rotation.Pitch)), Math.Sin(Rad(rotation.Yaw)), Math.Cos(Rad(rotation.Yaw)), Math.Sin(Rad(rotation.Roll)), Math.Cos(Rad(rotation.Roll)));
-    // Unreal's rotation matrix Z axis: the plant's up direction.
-    var up = new Vector(-(cr * sp * cy + sr * sy), cy * sr - cr * sp * sy, cr * cp);
-    if (up.Z < .5) throw new InvalidDataException("Plant is tilted too steeply to place copies");
-    return (new Vector(location.X, location.Y, location.Z), up, rotation);
+    return new Vector(location.X, location.Y, location.Z);
 }
 
 static void SetLocation(NormalExport root, Vector position)

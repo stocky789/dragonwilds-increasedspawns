@@ -16,7 +16,7 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Minor Feature
 
-- The graveyard near Bleakfields Valley now has 20 corpse cotton plants instead of 5. Three extra plants grow around each original one. This has not yet been checked in game.
+- The graveyard near Bleakfields Valley now has 20 corpse cotton plants instead of 5. The 15 new plants are spread over open ground between the graves.
 
 ### Bug Fixes
 

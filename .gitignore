@@ -18,6 +18,8 @@ dist/
 __pycache__/
 fixed_spawns/bin/
 fixed_spawns/obj/
+corpse_cotton/bin/
+corpse_cotton/obj/
 .vs/
 .idea/
 .vscode/

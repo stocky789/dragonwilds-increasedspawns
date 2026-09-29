@@ -4,11 +4,23 @@ All notable changes to **Dragonwilds Increased Dragon Wolf Spawns** are recorded
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release tags use a `v` prefix (for example `v1.0.0`). Release sections use the same four buckets throughout: **Major Feature**, **Minor Feature**, **Bug Fixes**, and **Miscellaneous**.
 
-> **Version history note:** The fixed-spawn changes have passed structural and package checks and loaded on a Linux server, but have not been checked in game. Builds use the newest numbered changelog heading (`1.0.0` → `v1.0.0`).
+> **Version history note:** The fixed-spawn changes have passed structural and package checks and loaded on a Linux server, but have not been checked in game. Builds use the newest numbered changelog heading (`1.1.0` → `v1.1.0`).
 
 ## [Unreleased]
 
 > **Maintainers:** Leave this section empty. Append new entries under the **latest numbered version** heading below (the first `## [x.y.z]` block after this one) until that version is tagged and published.
+
+## [1.1.0]
+
+### Major Feature
+
+### Minor Feature
+
+- The graveyard near Bleakfields Valley now has 20 corpse cotton plants instead of 5. Three extra plants grow around each original one. This has not yet been checked in game.
+
+### Bug Fixes
+
+### Miscellaneous
 
 ## [1.0.0]
 

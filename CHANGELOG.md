@@ -4,11 +4,24 @@ All notable changes to **Dragonwilds Increased Dragon Wolf Spawns** are recorded
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release tags use a `v` prefix (for example `v1.0.0`). Release sections use the same four buckets throughout: **Major Feature**, **Minor Feature**, **Bug Fixes**, and **Miscellaneous**.
 
-> **Version history note:** The fixed-spawn changes have passed structural and package checks and loaded on a Linux server, but have not been checked in game. Builds use the newest numbered changelog heading (`1.1.0` → `v1.1.0`).
+> **Version history note:** The fixed-spawn changes have passed structural and package checks and loaded on a Linux server, but have not been checked in game. Builds use the newest numbered changelog heading (`1.2.0` → `v1.2.0`).
 
 ## [Unreleased]
 
 > **Maintainers:** Leave this section empty. Append new entries under the **latest numbered version** heading below (the first `## [x.y.z]` block after this one) until that version is tagged and published.
+
+## [1.2.0]
+
+### Major Feature
+
+### Minor Feature
+
+- Enemies that drop undead bones now drop three times as many. This covers skeletons, zombies, zombie ogres, Rotsworn and withered or zombie cows. Drop chances are unchanged.
+- Ghosts and spectral creatures that drop ectoplasm now drop three at a time instead of one. Drop chances are unchanged.
+
+### Bug Fixes
+
+### Miscellaneous
 
 ## [1.1.0]
 

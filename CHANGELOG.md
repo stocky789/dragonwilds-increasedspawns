@@ -18,7 +18,7 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Bug Fixes
 
-- Ghosts now drop three ectoplasm instead of one. Their ectoplasm drops once per player, which ignored the tripled amount, so each ghost now makes three separate drops instead. Drop chances are unchanged.
+- Ghosts now drop three ectoplasm instead of one. Their ectoplasm drops once per player, which ignored the tripled amount, so each ghost now gives three separate ectoplasm from a single roll. The chance of getting ectoplasm, and of the Soulstone Guardian's mount drops, is unchanged.
 
 ### Miscellaneous
 

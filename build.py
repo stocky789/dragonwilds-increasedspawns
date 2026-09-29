@@ -58,7 +58,7 @@ def main():
         missing = [str(asset.relative_to(source)) for asset in assets if asset.relative_to(source).as_posix() not in packed_paths]
         if missing:
             raise SystemExit(f"Packed {platform} archive is missing: {', '.join(missing)}")
-        archive = DIST / f"DragonWolfSpawns-{label}-v{version}.zip"
+        archive = DIST / f"IncreasedSpawns-{label}-v{version}.zip"
         with ZipFile(archive, "w", ZIP_DEFLATED) as zip_file:
             for suffix in ("pak", "utoc", "ucas"):
                 path = output / f"{NAME}.{suffix}"

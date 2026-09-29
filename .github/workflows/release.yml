@@ -30,10 +30,10 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dragon-wolf-spawns
+          name: increased-spawns
           if-no-files-found: error
           path: |
-            dist/DragonWolfSpawns-*-v*.zip
+            dist/IncreasedSpawns-*-v*.zip
             dist/release-notes.md
 
   release:
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: dragon-wolf-spawns
+          name: increased-spawns
           path: dist
       - name: Publish changelog version
         env:
@@ -58,4 +58,4 @@ jobs:
             echo "v$version already released; bump CHANGELOG.md for the next release"
             exit 0
           fi
-          gh release create "v$version" "dist/DragonWolfSpawns-LinuxServer-v$version.zip" "dist/DragonWolfSpawns-Windows-v$version.zip" --title "Dragon Wolf Spawns v$version" --notes-file dist/release-notes.md --target "$GITHUB_SHA"
+          gh release create "v$version" "dist/IncreasedSpawns-LinuxServer-v$version.zip" "dist/IncreasedSpawns-Windows-v$version.zip" --title "Increased Spawns v$version" --notes-file dist/release-notes.md --target "$GITHUB_SHA"

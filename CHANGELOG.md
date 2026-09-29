@@ -4,11 +4,24 @@ All notable changes to **Dragonwilds Increased Dragon Wolf Spawns** are recorded
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release tags use a `v` prefix (for example `v1.0.0`). Release sections use the same four buckets throughout: **Major Feature**, **Minor Feature**, **Bug Fixes**, and **Miscellaneous**.
 
-> **Version history note:** The fixed-spawn changes have passed structural and package checks and loaded on a Linux server, but have not been checked in game. Builds use the newest numbered changelog heading (`1.2.0` → `v1.2.0`).
+> **Version history note:** The fixed-spawn changes have passed structural and package checks and loaded on a Linux server, but have not been checked in game. Builds use the newest numbered changelog heading (`1.2.1` → `v1.2.1`).
 
 ## [Unreleased]
 
 > **Maintainers:** Leave this section empty. Append new entries under the **latest numbered version** heading below (the first `## [x.y.z]` block after this one) until that version is tagged and published.
+
+## [1.2.1]
+
+### Major Feature
+
+### Minor Feature
+
+### Bug Fixes
+
+### Miscellaneous
+
+- Checked against the 29 September 2026 game update (game version 245400). The update did not change anything the mod edits, so the mod files are the same as 1.2.0 and work with the updated game and dedicated server.
+- Added the tool that makes the larger Dragon Wolf groups, so the whole mod can be rebuilt after future game updates.
 
 ## [1.2.0]
 

@@ -6,7 +6,7 @@ It also adds 15 corpse cotton plants to the graveyard near Bleakfields Valley, b
 
 The mod is a UE 5.6 IoStore pak trio, so it does not need UE4SS or RuneSchema. There are separate Linux server and Windows builds because their cooked asset formats differ. The assets were taken from Linux server build **25465077** and Windows client build **25466454** (Dragonwilds 1.0). They were rebuilt from Linux server build **25501739** and Windows client build **25492068** (game version 245400) and came out byte for byte the same, so the mod works on both. Both archives pass pack verification and asset readback. The updated Linux pak mounted and loaded an existing dedicated-server world on 28 September 2026. Its visible wolf count has not yet been checked in game.
 
-Enemies that drop undead bones drop three times as many, and ectoplasm drops come three at a time. Drop chances are unchanged. This edits the enemy loot table (`DT_LootDropTable`) in both builds; the affected rows are listed by the [loot drop tool](loot_drops/Program.cs).
+Enemies that drop undead bones drop three times as many, and ectoplasm drops come three at a time. Ghost ectoplasm drops once per player whatever its amount, so ghosts get three separate drops instead. Drop chances are unchanged. This edits the enemy loot table (`DT_LootDropTable`) in both builds; the affected rows are listed by the [loot drop tool](loot_drops/Program.cs).
 
 ## Install
 

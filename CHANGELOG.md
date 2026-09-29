@@ -18,9 +18,11 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Bug Fixes
 
+- Ghosts now drop three ectoplasm instead of one. Their ectoplasm drops once per player, which ignored the tripled amount, so each ghost now makes three separate drops instead. Drop chances are unchanged.
+
 ### Miscellaneous
 
-- Checked against the 29 September 2026 game update (game version 245400). The update did not change anything the mod edits, so the mod files are the same as 1.2.0 and work with the updated game and dedicated server.
+- Checked against the 29 September 2026 game update (game version 245400). The update did not change anything the mod edits, so the mod works with the updated game and dedicated server.
 - Added the tool that makes the larger Dragon Wolf groups, so the whole mod can be rebuilt after future game updates.
 
 ## [1.2.0]

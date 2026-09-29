@@ -20,6 +20,8 @@ fixed_spawns/bin/
 fixed_spawns/obj/
 corpse_cotton/bin/
 corpse_cotton/obj/
+loot_drops/bin/
+loot_drops/obj/
 .vs/
 .idea/
 .vscode/

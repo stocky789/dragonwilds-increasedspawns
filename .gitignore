@@ -25,3 +25,5 @@ loot_drops/obj/
 .vs/
 .idea/
 .vscode/
+spawn_tables/bin/
+spawn_tables/obj/

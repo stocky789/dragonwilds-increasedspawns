@@ -14,15 +14,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install retoc
+      - name: Install retoc and repak
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download v0.1.5 -R trumank/retoc -p 'retoc_cli-x86_64-unknown-linux-gnu.tar.xz*' -D "$RUNNER_TEMP"
+          gh release download v0.2.3 -R trumank/repak -p 'repak_cli-x86_64-unknown-linux-gnu.tar.xz*' -D "$RUNNER_TEMP"
           cd "$RUNNER_TEMP"
           sha256sum -c retoc_cli-x86_64-unknown-linux-gnu.tar.xz.sha256
+          sha256sum -c repak_cli-x86_64-unknown-linux-gnu.tar.xz.sha256
           tar -xf retoc_cli-x86_64-unknown-linux-gnu.tar.xz
+          tar -xf repak_cli-x86_64-unknown-linux-gnu.tar.xz
           echo "$RUNNER_TEMP/retoc_cli-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/repak_cli-x86_64-unknown-linux-gnu" >> "$GITHUB_PATH"
       - name: Build and verify pak
         run: |
           python3 -m unittest -q

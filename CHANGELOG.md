@@ -4,11 +4,23 @@ All notable changes to **Dragonwilds Increased Dragon Wolf Spawns** are recorded
 
 This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release tags use a `v` prefix (for example `v1.0.0`). Release sections use the same four buckets throughout: **Major Feature**, **Minor Feature**, **Bug Fixes**, and **Miscellaneous**.
 
-> **Version history note:** The fixed-spawn changes have passed structural and package checks and loaded on a Linux server, but have not been checked in game. Builds use the newest numbered changelog heading (`1.2.1` → `v1.2.1`).
+> **Version history note:** The fixed-spawn changes have passed structural and package checks and loaded on a Linux server, but have not been checked in game. Builds use the newest numbered changelog heading (`1.3.0` → `v1.3.0`).
 
 ## [Unreleased]
 
 > **Maintainers:** Leave this section empty. Append new entries under the **latest numbered version** heading below (the first `## [x.y.z]` block after this one) until that version is tagged and published.
+
+## [1.3.0]
+
+### Major Feature
+
+### Minor Feature
+
+- Linked chests can now supply building and crafting materials from 150 m away instead of 30 m.
+
+### Bug Fixes
+
+### Miscellaneous
 
 ## [1.2.1]
 

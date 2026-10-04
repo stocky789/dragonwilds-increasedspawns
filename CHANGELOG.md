@@ -10,6 +10,20 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 > **Maintainers:** Leave this section empty. Append new entries under the **latest numbered version** heading below (the first `## [x.y.z]` block after this one) until that version is tagged and published.
 
+## [1.4.0]
+
+### Major Feature
+
+### Minor Feature
+
+- Mining nodes now give double the ore. This covers copper, tin, iron, silver, gold, mithril, adamantite, blurite, runite and luminite ore, plus coal, clay, rune essence, gypsum and limestone. Gem finds from mining keep their normal amount and chance. Stone, granite, sandstone, dragon teeth and soul stone are unchanged.
+
+### Bug Fixes
+
+### Miscellaneous
+
+- The Linux package uses the Windows game files for the ore nodes, because no Linux server files were available to edit. The ore tool can be run on Linux server files to replace them. The doubled ore has not been checked in game, and the Linux package has not been run on a server with these files.
+
 ## [1.3.0]
 
 ### Major Feature

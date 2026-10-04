@@ -10,6 +10,8 @@ Enemies that drop undead bones drop three times as many, and ectoplasm drops com
 
 Linked chests supply building and crafting materials from 150 m away (`LinkedStorageRadius` 15000 instead of 3000). That override is packed into the same pak as `RSDragonwilds/Config/UserGame.ini`.
 
+Mining nodes give double the ore: copper, tin, iron, silver, gold, mithril, adamantite, blurite, runite and luminite ore, plus coal, clay, rune essence, gypsum and limestone (`MinToDrop` and `MaxToDrop` doubled in each node's drop component). Gems and other chance-based drops keep their amounts and chances, and stone, granite, sandstone, dragon teeth and soul stone are unchanged. This replaces 107 mining Blueprints under `World/Mining`, so another mod editing any ore node will conflict. The [ore yield tool](ore_yield/Program.cs) does the edit from `retoc to-legacy -f World/Mining/` output, and fails if a node drops an item it does not list, so a game update that adds an ore is caught. No Linux server files were available, so `source/linux/` holds the same Windows-cooked ore nodes as `source/windows/`; rerun the tool on Linux server files to replace them. Not yet checked in game.
+
 ## Install
 
 1. Stop the server and back up its world save.

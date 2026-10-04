@@ -27,3 +27,5 @@ loot_drops/obj/
 .vscode/
 spawn_tables/bin/
 spawn_tables/obj/
+ore_yield/bin/
+ore_yield/obj/

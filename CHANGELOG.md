@@ -10,6 +10,20 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 > **Maintainers:** Leave this section empty. Append new entries under the **latest numbered version** heading below (the first `## [x.y.z]` block after this one) until that version is tagged and published.
 
+## [1.5.0]
+
+### Major Feature
+
+### Minor Feature
+
+- Mounts now sprint 25% faster. This covers every Terrorbird colour and the Flying Carpet. Walking pace on a mount is unchanged.
+
+### Bug Fixes
+
+### Miscellaneous
+
+- The mount sprint speed edit changes the player attribute table and the Flying Carpet's sprint effect (game version 245400, both platforms). It has not yet been checked in game.
+
 ## [1.4.0]
 
 ### Major Feature

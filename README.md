@@ -12,6 +12,8 @@ Linked chests supply building and crafting materials from 150 m away (`LinkedSto
 
 Mining nodes give double the ore: copper, tin, iron, silver, gold, mithril, adamantite, blurite, runite and luminite ore, plus coal, clay, rune essence, gypsum and limestone (`MinToDrop` and `MaxToDrop` doubled in each node's drop component). Gems and other chance-based drops keep their amounts and chances, and stone, granite, sandstone, dragon teeth and soul stone are unchanged. This replaces 107 mining Blueprints under `World/Mining`, so another mod editing any ore node will conflict. The [ore yield tool](ore_yield/Program.cs) does the edit from `retoc to-legacy -f World/Mining/` output of each platform's game files, and fails if a node drops an item it does not list, so a game update that adds an ore is caught. Not yet checked in game.
 
+Mounts sprint 25% faster. No mount has its own speed: every Terrorbird colour uses the player's `MountSprintSpeed` attribute, set by a row in `DT_Attributes_Player` (910, against 680 for a player on foot) and the `DT_Composite_Attributes_Player` table built from it. Both rows are now 1137.5. The Flying Carpet instead overrides the attribute with `GE_Mount_FlyingCarpet_UmSSprintSpeed`, changed from 1540 to 1925. Walking pace on a mount (`MountRunSpeed`) is unchanged. The [mount speed tool](mount_speed/Program.cs) does the edit. Not yet checked in game.
+
 ## Install
 
 1. Stop the server and back up its world save.

@@ -22,7 +22,7 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Miscellaneous
 
-- The Linux package uses the Windows game files for the ore nodes, because no Linux server files were available to edit. The ore tool can be run on Linux server files to replace them. The doubled ore has not been checked in game, and the Linux package has not been run on a server with these files.
+- The ore nodes in both packages were edited from the matching game files (Linux server and Windows client, game version 245400). The doubled ore has not yet been checked in game.
 
 ## [1.3.0]
 

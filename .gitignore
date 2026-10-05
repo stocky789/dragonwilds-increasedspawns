@@ -33,3 +33,4 @@ spell_action_bar/**/bindings.txt
 spell_action_bar/**/api_dump.txt
 spell_action_bar/**/trace.txt
 spell_action_bar/**/crash_guard.txt
+spell_action_bar/**/crumb.txt

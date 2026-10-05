@@ -17,7 +17,7 @@ LINKED_STORAGE_INI = ROOT / "linked_storage" / "UserGame.ini"
 PLATFORMS = {"linux": "LinuxServer", "windows": "Windows"}
 SPELL_BAR = ROOT / "spell_action_bar" / "SpellActionBar"
 SPELL_BAR_REQUIRED = ("enabled.txt", "Scripts/main.lua", "Scripts/core.lua")
-SPELL_BAR_GENERATED = {"bindings.txt", "api_dump.txt", "trace.txt", "crash_guard.txt"}
+SPELL_BAR_GENERATED = {"bindings.txt", "api_dump.txt", "trace.txt", "crash_guard.txt", "crumb.txt"}
 
 
 def spell_bar_files(folder=SPELL_BAR):

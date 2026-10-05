@@ -18,16 +18,16 @@ local ModName = "[SpellActionBar] "
 
 local Config = {
     Slots = 8,                  -- Ctrl+1 .. Ctrl+Slots (max 8: the vanilla bar has 8)
-    SlotSize = 56,              -- px per slot
-    SlotGap = 6,                -- px between slots
-    GapAboveHotbar = 10,        -- px between this bar and the vanilla bar
-    FallbackBottomOffset = 130, -- px from screen bottom when the vanilla bar can't be measured
+    SlotSize = 60,              -- px per slot at HUD scale 1.0 (match the vanilla slots)
+    SlotGap = 6,                -- px between slots at HUD scale 1.0
+    BottomOffset = 120,         -- px from the screen bottom to this bar's bottom edge at HUD scale 1.0;
+                                -- raise it if the bar overlaps the vanilla hotbar
     ZOrder = 5,
-    ShowEmptySlots = false,     -- false: a slot only appears once a spell is bound to it
+    ShowEmptySlots = true,      -- false: a slot only appears once a spell is bound to it
     SuppressVanillaSlots = true,-- disable vanilla 1-8 mappings while Ctrl is held
     Verbose = true,             -- log how each wheel hover / activation was resolved
     Diagnostics = true,         -- write api_dump.txt once, trace spell-selection calls
-    PollMs = 50,
+    PollMs = 100,
 }
 
 local UEHelpers = require("UEHelpers")
@@ -49,8 +49,17 @@ local function valid(obj)
     return ok and result == true
 end
 
+-- Breadcrumb: the step about to run goes to crumb.txt first. If the game dies inside
+-- UE4SS, the file names the last step started.
+local CrumbFile = ScriptDir .. "crumb.txt"
+local function crumb(step)
+    local f = io.open(CrumbFile, "w")
+    if f then f:write(step .. "\n"); f:close() end
+end
+
 -- Runs fn; on error logs `what` with the message and returns nil.
 local function try(what, fn, ...)
+    crumb(what)
     local ok, a, b, c = pcall(fn, ...)
     if not ok then log(what .. " failed: " .. tostring(a)); return nil end
     return a, b, c
@@ -372,117 +381,63 @@ local function buildBar(pc)
     return true
 end
 
--- Vanilla bar: the visible QuickAccessBarBase lowest on screen (the HUD one).
-local function findVanillaBar(pc)
-    local best, bestY
+-- The HUD is up when a vanilla quick-access bar is showing. One IsVisible call per bar and
+-- no geometry: GetCachedGeometry / LocalToViewport (struct-returning Slate calls) were
+-- the calls running when the game crashed inside UE4SS, so layout no longer measures anything.
+local function hudVisible()
     for _, bar in ipairs(FindAllOf("QuickAccessBarBase") or {}) do
-        if valid(bar) and chainVisible(bar) then
-            local ok, y = pcall(function()
-                local geo = bar:GetCachedGeometry()
-                local abs = StaticFindObject("/Script/UMG.Default__SlateBlueprintLibrary"):GetAbsolutePosition(geo)
-                return abs.Y
-            end)
-            y = ok and y or 0
-            if not best or y > bestY then best, bestY = bar, y end
+        if valid(bar) then
+            local ok, shown = pcall(function() return bar:IsVisible() end)
+            if ok and shown then return true end
         end
     end
-    return best
+    return false
 end
 
--- Reads the vanilla bar's live layout. The game's HUD scale option
--- (DominionAccessibilitySettings.HudScale) changes how big the vanilla bar is drawn but
--- not our separate viewport widget, so instead of reading the setting we measure the
--- drawn bar: `scale` is local-to-screen units, `dpi` the viewport's own scale (which
--- our widget already gets), so our widget needs an extra render scale of scale/dpi.
--- Returns nil if anything can't be measured.
-local function measure(pc, vanilla)
-    local lib = StaticFindObject("/Script/UMG.Default__SlateBlueprintLibrary")
-    local ok, m = pcall(function()
-        local geo = vanilla:GetCachedGeometry()
-        local size, abs = lib:GetLocalSize(geo), lib:GetAbsoluteSize(geo)
-        if not size.X or size.X <= 0 or not abs.X or abs.X <= 0 then return nil end
-        local scale = abs.X / size.X
-
-        local dpi = 1
-        pcall(function()
-            dpi = StaticFindObject("/Script/UMG.Default__WidgetLayoutLibrary"):GetViewportScale(pc)
-        end)
-        if type(dpi) ~= "number" or dpi <= 0 then dpi = 1 end
-
-        -- Top-centre of the vanilla bar in viewport units. Absolute geometry is in screen
-        -- units (local * scale, DPI included); SetPositionInViewport wants it divided by
-        -- the viewport DPI scale. This assumes the game window's origin is the viewport's
-        -- (borderless/fullscreen). No out-param Slate calls: LocalToViewport crashed UE4SS.
-        local origin = lib:GetAbsolutePosition(geo)
-        local viewportX, viewportY = (origin.X + abs.X / 2) / dpi, origin.Y / dpi
-        if not (viewportX > 0) or not (viewportY > 0) then return nil end
-
-        -- slot size and pitch in the bar's own units, from the first two vanilla slots
-        local slot, pitch
-        pcall(function()
-            local slots = vanilla.QuickAccessSlots
-            if slots:GetArrayNum() >= 2 then
-                local g1, g2 = slots[1]:GetCachedGeometry(), slots[2]:GetCachedGeometry()
-                slot = lib:GetAbsoluteSize(g1).X / scale
-                pitch = (lib:GetAbsolutePosition(g2).X - lib:GetAbsolutePosition(g1).X) / scale
-            end
-        end)
-        if not slot or slot < 8 then slot = Config.SlotSize end
-        if not pitch or pitch < slot then pitch = slot + Config.SlotGap end
-
-        local k = scale / dpi
-        if k < 0.25 or k > 4 then return nil end
-        return { x = viewportX, y = viewportY, k = k, slot = slot, pitch = pitch, scale = scale, dpi = dpi }
+-- The in-game HUD scale (Settings > Accessibility), DominionAccessibilitySettings.HudScale.
+local function hudScale()
+    local ok, scale = pcall(function()
+        local settings = FindFirstOf("DominionAccessibilitySettings")
+        if not valid(settings) then
+            settings = StaticFindObject("/Script/Dominion.Default__DominionAccessibilitySettings")
+        end
+        return valid(settings) and settings.HudScale or nil
     end)
-    return ok and m or nil
+    if ok and type(scale) == "number" and scale >= 0.25 and scale <= 4 then return scale end
+    return 1
 end
 
--- Resizes the bar to the vanilla slot size and render-scales it to the HUD scale.
-local function applyMetrics(m, vanilla)
-    local key = ("%.1f|%.1f|%.3f"):format(m.slot, m.pitch, m.k)
+-- Sizes the bar for HUD scale `k` and seats it bottom-centre above the vanilla bar.
+local function applyLayout(k)
+    local key = ("%.3f"):format(k)
     if key == Bar.applied then return end
-    local half = (m.pitch - m.slot) / 2
-    local inset = math.max(1, m.slot * 0.04)       -- frame thickness
-    local iconInset = m.slot * 0.10
+    local slot = Config.SlotSize
+    local half = Config.SlotGap / 2
+    local inset = math.max(1, slot * 0.04)       -- frame thickness
+    local iconInset = slot * 0.10
     for i = 1, Config.Slots do
         local ui = Bar.slots[i]
-        ui.size:SetWidthOverride(m.slot)
-        ui.size:SetHeightOverride(m.slot)
+        ui.size:SetWidthOverride(slot)
+        ui.size:SetHeightOverride(slot)
         pcall(function()
             ui.rowSlot:SetPadding({ Left = half, Top = 0, Right = half, Bottom = 0 })
             ui.backSlot:SetPadding({ Left = inset, Top = inset, Right = inset, Bottom = inset })
             ui.iconSlot:SetPadding({ Left = iconInset, Top = iconInset, Right = iconInset, Bottom = iconInset })
-            ui.labelSlot:SetPadding({ Left = inset + m.slot * 0.05, Top = inset, Right = 0, Bottom = 0 })
+            ui.labelSlot:SetPadding({ Left = inset + slot * 0.05, Top = inset, Right = 0, Bottom = 0 })
         end)
         pcall(function()
             local font = ui.label.Font
-            font.Size = math.max(8, math.floor(m.slot * 0.24))
+            font.Size = math.max(8, math.floor(slot * 0.24))
             ui.label:SetFont(font)
         end)
     end
-    Bar.host:SetRenderScale({ X = m.k, Y = m.k })
-    Bar.applied = key
-    Bar.lastX = nil -- force re-place: the gap above the bar scales too
-    vlog(("layout: slot %.1f, pitch %.1f, extra scale %.3f (screen %.3f / viewport %.3f)"):format(
-        m.slot, m.pitch, m.k, m.scale, m.dpi))
-end
-
-local function place(m)
     local host = Bar.host
-    if m then
-        local y = m.y - Config.GapAboveHotbar * m.k
-        if type(Bar.lastX) == "number" and math.abs(Bar.lastX - m.x) < 0.5 and math.abs(Bar.lastY - y) < 0.5 then return end
-        host:SetAnchorsInViewport({ Minimum = { X = 0, Y = 0 }, Maximum = { X = 0, Y = 0 } })
-        host:SetAlignmentInViewport({ X = 0.5, Y = 1 })
-        host:SetPositionInViewport({ X = m.x, Y = y }, false)
-        Bar.lastX, Bar.lastY = m.x, y
-    elseif Bar.lastX ~= "fallback" then
-        host:SetAnchorsInViewport({ Minimum = { X = 0.5, Y = 1 }, Maximum = { X = 0.5, Y = 1 } })
-        host:SetAlignmentInViewport({ X = 0.5, Y = 1 })
-        host:SetPositionInViewport({ X = 0, Y = -Config.FallbackBottomOffset }, false)
-        Bar.lastX, Bar.lastY = "fallback", "fallback"
-        log("could not measure the vanilla bar; using fixed offset " .. Config.FallbackBottomOffset .. " px")
-    end
+    host:SetRenderScale({ X = k, Y = k })
+    host:SetAnchorsInViewport({ Minimum = { X = 0.5, Y = 1 }, Maximum = { X = 0.5, Y = 1 } })
+    host:SetAlignmentInViewport({ X = 0.5, Y = 1 })
+    host:SetPositionInViewport({ X = 0, Y = -Config.BottomOffset * k }, false)
+    Bar.applied = key
+    vlog(("layout: HUD scale %.3f, slot %d px"):format(k, slot))
 end
 
 local function refreshBar()
@@ -516,18 +471,19 @@ local function syncBar()
         if not try("building the bar", buildBar, pc) then return end
         BindingsDirty = true
     end
-    local vanilla = findVanillaBar(pc)
-    local want = vanilla ~= nil
+    crumb("hudVisible")
+    local want = hudVisible()
     if want ~= Bar.visible then
+        crumb("host visibility")
         Bar.host:SetVisibility(want and 3 or 1)
         Bar.visible = want
     end
     if want then
-        local m = measure(pc, vanilla)
-        if m then try("applying layout", applyMetrics, m, vanilla) end
-        place(m)
+        crumb("hudScale")
+        local k = hudScale()
+        try("applying layout", applyLayout, k)
     end
-    if BindingsDirty then refreshBar() end
+    if BindingsDirty then crumb("refreshBar"); refreshBar() end
 end
 
 -- activation ------------------------------------------------------------

@@ -18,13 +18,18 @@ local ModName = "[SpellActionBar] "
 
 local Config = {
     Slots = 8,                  -- slots 1..Slots (max 8: the vanilla bar has 8)
-    SlotSize = 60,              -- px per slot at HUD scale 1.0 (match the vanilla slots)
+    SlotSize = 52,              -- px per slot at HUD scale 1.0
     SlotGap = 6,                -- px between slots at HUD scale 1.0
-    Left = 68,                  -- the vanilla hotbar is top-left: this bar's left edge, at HUD scale 1.0
-    Top = 128,                  -- and its top edge: just clear of the vanilla bar's bottom edge
+    OffsetX = -80,              -- bar centre, px right of screen centre at HUD scale 1.0 (negative = left,
+                                -- clear of the health bars)
+    BottomMargin = 20,          -- px between the bar's bottom edge and the screen bottom at HUD scale 1.0
     ZOrder = 5,
-    ShowEmptySlots = true,      -- false: a slot only appears once a spell is bound to it
-    SuppressVanillaSlots = true,-- disable vanilla 1-8 mappings while Alt is held
+    ShowEmptySlots = false,     -- false: a slot only appears once a spell is bound to it
+    UseFKeys = true,            -- slot N = F<N>. Mouse-hand friendly; no vanilla clash found in the game's input mappings
+    UseNumpad = false,          -- slot N = numpad N as well
+    AltDigits = false,          -- EXPERIMENTAL: also allow Alt+1..8 on the number row. Turning vanilla slots
+                                -- off while Alt is held edits live input mappings and crashed the game.
+    SuppressVanillaSlots = true,-- with AltDigits: disable vanilla 1-8 mappings while Alt is held
     Verbose = true,             -- log how each wheel hover / activation was resolved
     Diagnostics = true,         -- write api_dump.txt once, trace spell-selection calls
     PollMs = 30,                -- input poll; the bar/state work runs every SlowEvery-th poll
@@ -375,7 +380,7 @@ local function buildBar(pc)
         end
         local icon = make("Image")
         local label = make("TextBlock")
-        label:SetText(FText(Core.chordLabel(i)))
+        label:SetText(FText((Config.UseFKeys and ("F" .. i)) or (Config.UseNumpad and ("Num" .. i)) or Core.chordLabel(i)))
         pcall(function()
             label:SetShadowOffset({ X = 1, Y = 1 })
             label:SetShadowColorAndOpacity({ R = 0, G = 0, B = 0, A = 0.9 })
@@ -398,8 +403,8 @@ local function buildBar(pc)
     tree.RootWidget = row
     host:AddToViewport(Config.ZOrder)
     host:SetVisibility(3) -- HitTestInvisible: never steal clicks from the game
-    -- Scale about the top-left corner so the bar stays seated under the vanilla bar.
-    pcall(function() host:SetRenderTransformPivot({ X = 0, Y = 0 }) end)
+    -- Scale about the bottom centre so the bar stays seated at the bottom of the screen.
+    pcall(function() host:SetRenderTransformPivot({ X = 0.5, Y = 1 }) end)
     Bar.host, Bar.slots, Bar.visible, Bar.applied = host, slots, true, nil
     log("bar created (host " .. hostPath .. ")")
     return true
@@ -458,11 +463,11 @@ local function applyLayout(k)
     end
     local host = Bar.host
     host:SetRenderScale({ X = k, Y = k })
-    host:SetAnchorsInViewport({ Minimum = { X = 0, Y = 0 }, Maximum = { X = 0, Y = 0 } })
-    host:SetAlignmentInViewport({ X = 0, Y = 0 })
-    host:SetPositionInViewport({ X = Config.Left * k, Y = Config.Top * k }, false)
+    host:SetAnchorsInViewport({ Minimum = { X = 0.5, Y = 1 }, Maximum = { X = 0.5, Y = 1 } })
+    host:SetAlignmentInViewport({ X = 0.5, Y = 1 })
+    host:SetPositionInViewport({ X = Config.OffsetX * k, Y = -Config.BottomMargin * k }, false)
     Bar.applied = key
-    vlog(("layout: HUD scale %.3f, slot %d px, at %.0f,%.0f"):format(k, slot, Config.Left * k, Config.Top * k))
+    vlog(("layout: HUD scale %.3f, slot %d px, bottom-centre offset %.0f,%.0f"):format(k, slot, Config.OffsetX * k, -Config.BottomMargin * k))
     -- One-shot state report: plain property reads, so a bar that exists but doesn't draw
     -- can be told apart from one that never reached the viewport.
     pcall(function()
@@ -541,8 +546,10 @@ end
 local function activate(slot)
     local path = Bindings[slot]
     if not path then vlog("slot " .. slot .. " is empty"); return end
+    crumb("activate: load spell")
     local spell = loadSpell(path)
     if not spell then log("slot " .. slot .. ": spell asset not loadable: " .. path); return end
+    crumb("activate: find component")
     local comp = getComponent()
     if not comp then log("no SpellcastingComponent; are you in a world?"); return end
 
@@ -561,15 +568,20 @@ local function activate(slot)
         log("SpellcastingComponent:Server_NotifySpellRadialSelected missing or changed (see api_dump.txt)")
         return
     end
+    crumb("activate: find wheel")
     local wheel
     for _, r in ipairs(FindAllOf("SpellcastingRadialBase") or {}) do
         if valid(r) and not r.bIsSpellbookInstance then wheel = r; break end
     end
     if not wheel then log("HUD spell wheel widget not found"); return end
     local ok, err = pcall(function()
+        crumb("activate: page")
         comp:Server_NotifySpellRadialSelected(radial)
+        crumb("activate: highlight")
         wheel:HighlightSlice(inRadial)
+        crumb("activate: select")
         wheel:SelectSlice()
+        crumb("activate: done")
     end)
     if not ok then log("selecting the slice failed: " .. tostring(err)); return end
 
@@ -686,7 +698,8 @@ loadBindings()
 -- keys are only read while Alt is held; numpad keys are always read.
 local DigitKeys = { "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight" }
 local NumpadKeys = { "NumPadOne", "NumPadTwo", "NumPadThree", "NumPadFour", "NumPadFive", "NumPadSix", "NumPadSeven", "NumPadEight" }
-local WasDown = { digit = {}, numpad = {} }
+local FKeys = { "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8" }
+local WasDown = { digit = {}, numpad = {}, f = {} }
 local function keyDown(pc, name)
     local ok, down = pcall(function() return pc:IsInputKeyDown({ KeyName = FName(name) }) end)
     return ok and down == true
@@ -728,10 +741,11 @@ local function tick()
         return
     end
 
-    local alt = modifierDown(pc)
-    if Config.SuppressVanillaSlots then try("vanilla slot toggle", setVanillaSlots, alt) end
-    pollKeys(pc, DigitKeys, WasDown.digit, alt)
-    pollKeys(pc, NumpadKeys, WasDown.numpad, true)
+    local alt = Config.AltDigits and modifierDown(pc)
+    if Config.AltDigits and Config.SuppressVanillaSlots then try("vanilla slot toggle", setVanillaSlots, alt) end
+    if Config.AltDigits then pollKeys(pc, DigitKeys, WasDown.digit, alt) end
+    if Config.UseFKeys then pollKeys(pc, FKeys, WasDown.f, true) end
+    if Config.UseNumpad then pollKeys(pc, NumpadKeys, WasDown.numpad, true) end
 
     if not slow and not BindingsDirty then return end
     if Config.Diagnostics and not dumped then dumped = true; try("api dump", writeApiDump) end

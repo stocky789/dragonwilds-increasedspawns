@@ -10,11 +10,29 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 > **Maintainers:** Leave this section empty. Append new entries under the **latest numbered version** heading below (the first `## [x.y.z]` block after this one) until that version is tagged and published.
 
+## [1.6.1]
+
+### Major Feature
+
+### Minor Feature
+
+- The spell action bar hotkeys are now F1 to F8, so you can use them without leaving the mouse or WASD. Numpad 1 to 8 is available as an option.
+- The bar moved to the bottom of the screen, left of centre and clear of the health bars. Its slots use the game's own slot background tinted purple, and it follows the in-game HUD scale.
+
+### Bug Fixes
+
+- Fixed the game crashing when pressing Alt+1 to cast a bound spell. The Alt+number hotkeys are now off by default.
+- Fixed the action bar not appearing in game.
+
+### Miscellaneous
+
+- The spell action bar has still not been run through a full cast in game. If it crashes, `crumb.txt` and `UE4SS.log` in the mod folder show where.
+
 ## [1.6.0]
 
 ### Major Feature
 
-- Added a spell action bar. Open the spell wheel, point at a spell and press Alt+1 to Alt+8 (or numpad 1 to 8) to put it on a second bar under the normal hotbar, with its icon. Outside the wheel, the same keys select that spell. The bar matches the hotbar's size and follows the in-game HUD scale. It is a client-side UE4SS mod, so it needs UE4SS installed and is only in the Windows download.
+- Added a spell action bar. Open the spell wheel, point at a spell and press a hotkey to put it on a second bar at the bottom of the screen, with its icon. Outside the wheel, the same key selects that spell. The bar matches the hotbar's size and follows the in-game HUD scale. It is a client-side UE4SS mod, so it needs UE4SS installed and is only in the Windows download.
 
 ### Minor Feature
 
@@ -22,7 +40,7 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Miscellaneous
 
-- The spell action bar has not been run in game yet. Casting a spell with those keys in particular is untested.
+- The spell action bar has not been run in game yet. Casting a spell with the hotkeys in particular is untested.
 
 ## [1.5.0]
 

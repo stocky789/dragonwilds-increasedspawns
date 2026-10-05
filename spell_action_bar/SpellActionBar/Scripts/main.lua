@@ -20,8 +20,8 @@ local Config = {
     Slots = 8,                  -- Ctrl+1 .. Ctrl+Slots (max 8: the vanilla bar has 8)
     SlotSize = 60,              -- px per slot at HUD scale 1.0 (match the vanilla slots)
     SlotGap = 6,                -- px between slots at HUD scale 1.0
-    BottomOffset = 120,         -- px from the screen bottom to this bar's bottom edge at HUD scale 1.0;
-                                -- raise it if the bar overlaps the vanilla hotbar
+    Left = 68,                  -- the vanilla hotbar is top-left: this bar's left edge, at HUD scale 1.0
+    Top = 118,                  -- and its top edge, so it sits just under the vanilla bar
     ZOrder = 5,
     ShowEmptySlots = true,      -- false: a slot only appears once a spell is bound to it
     SuppressVanillaSlots = true,-- disable vanilla 1-8 mappings while Ctrl is held
@@ -374,8 +374,8 @@ local function buildBar(pc)
     tree.RootWidget = row
     host:AddToViewport(Config.ZOrder)
     host:SetVisibility(3) -- HitTestInvisible: never steal clicks from the game
-    -- Scale about the bottom centre so the bar stays seated above the vanilla bar.
-    pcall(function() host:SetRenderTransformPivot({ X = 0.5, Y = 1 }) end)
+    -- Scale about the top-left corner so the bar stays seated under the vanilla bar.
+    pcall(function() host:SetRenderTransformPivot({ X = 0, Y = 0 }) end)
     Bar.host, Bar.slots, Bar.visible, Bar.applied = host, slots, true, nil
     log("bar created (host " .. hostPath .. ")")
     return true
@@ -407,7 +407,7 @@ local function hudScale()
     return 1
 end
 
--- Sizes the bar for HUD scale `k` and seats it bottom-centre above the vanilla bar.
+-- Sizes the bar for HUD scale `k` and seats it under the vanilla top-left bar.
 local function applyLayout(k)
     local key = ("%.3f"):format(k)
     if key == Bar.applied then return end
@@ -433,11 +433,19 @@ local function applyLayout(k)
     end
     local host = Bar.host
     host:SetRenderScale({ X = k, Y = k })
-    host:SetAnchorsInViewport({ Minimum = { X = 0.5, Y = 1 }, Maximum = { X = 0.5, Y = 1 } })
-    host:SetAlignmentInViewport({ X = 0.5, Y = 1 })
-    host:SetPositionInViewport({ X = 0, Y = -Config.BottomOffset * k }, false)
+    host:SetAnchorsInViewport({ Minimum = { X = 0, Y = 0 }, Maximum = { X = 0, Y = 0 } })
+    host:SetAlignmentInViewport({ X = 0, Y = 0 })
+    host:SetPositionInViewport({ X = Config.Left * k, Y = Config.Top * k }, false)
     Bar.applied = key
-    vlog(("layout: HUD scale %.3f, slot %d px"):format(k, slot))
+    vlog(("layout: HUD scale %.3f, slot %d px, at %.0f,%.0f"):format(k, slot, Config.Left * k, Config.Top * k))
+    -- One-shot state report: plain property reads, so a bar that exists but doesn't draw
+    -- can be told apart from one that never reached the viewport.
+    pcall(function()
+        local tree = host.WidgetTree
+        log(("state: inViewport=%s visibility=%s root=%s"):format(
+            tostring(host:IsInViewport()), tostring(host:GetVisibility()),
+            valid(tree.RootWidget) and tree.RootWidget:GetFullName() or "NONE"))
+    end)
 end
 
 local function refreshBar()

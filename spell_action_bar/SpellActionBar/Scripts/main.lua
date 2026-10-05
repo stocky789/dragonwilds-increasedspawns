@@ -24,7 +24,7 @@ local Config = {
                                 -- clear of the health bars)
     BottomMargin = 20,          -- px between the bar's bottom edge and the screen bottom at HUD scale 1.0
     ZOrder = 5,
-    ShowEmptySlots = false,     -- false: a slot only appears once a spell is bound to it
+    ShowEmptySlots = true,      -- false: a slot only appears once a spell is bound to it
     UseFKeys = true,            -- slot N = F<N>. Mouse-hand friendly; no vanilla clash found in the game's input mappings
     UseNumpad = false,          -- slot N = numpad N as well
     AltDigits = false,          -- EXPERIMENTAL: also allow Alt+1..8 on the number row. Turning vanilla slots
@@ -436,9 +436,25 @@ local function hudScale()
     return 1
 end
 
--- Sizes the bar for HUD scale `k` and seats it under the vanilla top-left bar.
-local function applyLayout(k)
-    local key = ("%.3f"):format(k)
+-- Viewport size in the units SetPositionInViewport uses (pixels / DPI scale). Anchoring at
+-- the bottom edge never drew in game while top-left anchoring did, so the bottom-centre
+-- position is computed from this and applied as a top-left offset. Falls back to a
+-- 1080-high 21:9 screen if the engine calls fail.
+local function viewportUnits(pc)
+    local ok, w, h = pcall(function()
+        local lib = StaticFindObject("/Script/UMG.Default__WidgetLayoutLibrary")
+        local size, dpi = lib:GetViewportSize(pc), lib:GetViewportScale(pc)
+        if type(dpi) ~= "number" or dpi <= 0 then return nil end
+        return size.X / dpi, size.Y / dpi
+    end)
+    if ok and type(w) == "number" and type(h) == "number" and w > 100 and h > 100 then return w, h end
+    log("could not read the viewport size; assuming 2580x1080 units")
+    return 2580, 1080
+end
+
+-- Sizes the bar for HUD scale `k` and seats it bottom-centre on a vw x vh screen.
+local function applyLayout(k, vw, vh)
+    local key = ("%.3f|%.0f|%.0f"):format(k, vw, vh)
     if key == Bar.applied then return end
     local slot = Config.SlotSize
     local half = Config.SlotGap / 2
@@ -462,12 +478,13 @@ local function applyLayout(k)
         end)
     end
     local host = Bar.host
+    local x, y = vw / 2 + Config.OffsetX * k, vh - Config.BottomMargin * k
     host:SetRenderScale({ X = k, Y = k })
-    host:SetAnchorsInViewport({ Minimum = { X = 0.5, Y = 1 }, Maximum = { X = 0.5, Y = 1 } })
+    host:SetAnchorsInViewport({ Minimum = { X = 0, Y = 0 }, Maximum = { X = 0, Y = 0 } })
     host:SetAlignmentInViewport({ X = 0.5, Y = 1 })
-    host:SetPositionInViewport({ X = Config.OffsetX * k, Y = -Config.BottomMargin * k }, false)
+    host:SetPositionInViewport({ X = x, Y = y }, false)
     Bar.applied = key
-    vlog(("layout: HUD scale %.3f, slot %d px, bottom-centre offset %.0f,%.0f"):format(k, slot, Config.OffsetX * k, -Config.BottomMargin * k))
+    vlog(("layout: HUD scale %.3f, slot %d px, screen %.0fx%.0f units, bar bottom-centre at %.0f,%.0f"):format(k, slot, vw, vh, x, y))
     -- One-shot state report: plain property reads, so a bar that exists but doesn't draw
     -- can be told apart from one that never reached the viewport.
     pcall(function()
@@ -519,7 +536,13 @@ local function syncBar()
     if want then
         crumb("hudScale")
         local k = hudScale()
-        try("applying layout", applyLayout, k)
+        Bar.vpAge = (Bar.vpAge or 999) + 1
+        if Bar.vpAge >= 30 then
+            crumb("viewportUnits")
+            Bar.vpW, Bar.vpH = viewportUnits(pc)
+            Bar.vpAge = 0
+        end
+        try("applying layout", applyLayout, k, Bar.vpW, Bar.vpH)
     end
     if BindingsDirty then crumb("refreshBar"); refreshBar() end
 end
@@ -766,4 +789,10 @@ LoopAsync(Config.PollMs, function()
     return false
 end)
 
-log(("loaded: %d bindings, Alt+1..%d / numpad 1..%d"):format((function() local n = 0 for _ in pairs(Bindings) do n = n + 1 end return n end)(), Config.Slots, Config.Slots))
+local keyNames = {}
+if Config.UseFKeys then keyNames[#keyNames + 1] = "F1.." .. "F" .. Config.Slots end
+if Config.UseNumpad then keyNames[#keyNames + 1] = "numpad 1.." .. Config.Slots end
+if Config.AltDigits then keyNames[#keyNames + 1] = "Alt+1.." .. Config.Slots end
+local bound = 0
+for _ in pairs(Bindings) do bound = bound + 1 end
+log(("v1.6.1 loaded: %d bindings, keys: %s"):format(bound, table.concat(keyNames, ", ")))

@@ -15,6 +15,18 @@ DIST = ROOT / "dist"
 NAME = "DragonWolfSpawns_P"
 LINKED_STORAGE_INI = ROOT / "linked_storage" / "UserGame.ini"
 PLATFORMS = {"linux": "LinuxServer", "windows": "Windows"}
+SPELL_BAR = ROOT / "spell_action_bar" / "SpellActionBar"
+SPELL_BAR_REQUIRED = ("enabled.txt", "Scripts/main.lua", "Scripts/core.lua")
+SPELL_BAR_GENERATED = {"bindings.txt", "api_dump.txt", "trace.txt", "crash_guard.txt"}
+
+
+def spell_bar_files(folder=SPELL_BAR):
+    """Files of the client-side UE4SS spell bar mod as (path, archive name), minus runtime output."""
+    missing = [name for name in SPELL_BAR_REQUIRED if not (folder / name).is_file()]
+    if missing:
+        raise ValueError(f"{folder} is missing: {', '.join(missing)}")
+    files = [p for p in sorted(folder.rglob("*")) if p.is_file() and p.name not in SPELL_BAR_GENERATED]
+    return [(p, f"{folder.name}/{p.relative_to(folder).as_posix()}") for p in files]
 
 
 def version_and_notes(changelog):
@@ -91,6 +103,9 @@ def main():
             for suffix in ("pak", "utoc", "ucas"):
                 path = output / f"{NAME}.{suffix}"
                 zip_file.write(path, path.name)
+            if platform == "windows":
+                for path, arcname in spell_bar_files():
+                    zip_file.write(path, arcname)
         print(archive)
 
 

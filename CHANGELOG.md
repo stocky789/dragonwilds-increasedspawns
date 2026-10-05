@@ -10,6 +10,20 @@ This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 > **Maintainers:** Leave this section empty. Append new entries under the **latest numbered version** heading below (the first `## [x.y.z]` block after this one) until that version is tagged and published.
 
+## [1.6.0]
+
+### Major Feature
+
+- Added a spell action bar. Open the spell wheel, point at a spell and press Ctrl+1 to Ctrl+8 to put it on a second bar above the normal hotbar, with its icon. Outside the wheel, Ctrl+1 to Ctrl+8 selects that spell. The bar matches the hotbar's size and follows the in-game HUD scale. It is a client-side UE4SS mod, so it needs UE4SS installed and is only in the Windows download.
+
+### Minor Feature
+
+### Bug Fixes
+
+### Miscellaneous
+
+- The spell action bar has not been run in game yet. Casting a spell with Ctrl+N in particular is untested.
+
 ## [1.5.0]
 
 ### Major Feature

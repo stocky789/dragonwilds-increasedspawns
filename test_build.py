@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from build import source_assets, version_and_notes
+from build import source_assets, spell_bar_files, version_and_notes
 
 
 class ChangelogTest(unittest.TestCase):
@@ -30,6 +30,20 @@ class ChangelogTest(unittest.TestCase):
             (source / "Extra.uexp").touch()
             with self.assertRaises(ValueError):
                 source_assets(source)
+
+    def test_spell_bar_bundle_has_mod_files_and_no_runtime_output(self):
+        names = {arcname for _, arcname in spell_bar_files()}
+        self.assertEqual(names, {"SpellActionBar/enabled.txt", "SpellActionBar/Scripts/main.lua", "SpellActionBar/Scripts/core.lua"})
+        with TemporaryDirectory() as directory:
+            folder = Path(directory) / "SpellActionBar"
+            (folder / "Scripts").mkdir(parents=True)
+            for name in ("enabled.txt", "Scripts/main.lua", "Scripts/core.lua", "Scripts/bindings.txt", "Scripts/trace.txt"):
+                (folder / name).touch()
+            self.assertEqual(sorted(a for _, a in spell_bar_files(folder)),
+                             ["SpellActionBar/Scripts/core.lua", "SpellActionBar/Scripts/main.lua", "SpellActionBar/enabled.txt"])
+            (folder / "Scripts" / "core.lua").unlink()
+            with self.assertRaises(ValueError):
+                spell_bar_files(folder)
 
 
 if __name__ == "__main__":

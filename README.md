@@ -19,6 +19,7 @@ Mounts sprint 25% faster. No mount has its own speed: every Terrorbird colour us
 1. Stop the server and back up its world save.
 2. Extract the **LinuxServer** ZIP for a Linux dedicated server, or the **Windows** ZIP for a Windows server. Put all three `DragonWolfSpawns_P` files (`.pak`, `.utoc`, `.ucas`) directly in `RSDragonwilds/Content/Paks/~mods/` on the server. Create `~mods` if necessary.
 3. Start the server. Check its logs for the pak being mounted, then visit a known Dragon Wolf area and compare group sizes over several encounters.
+4. Windows ZIP only, for the client: also copy the `SpellActionBar` folder into `RSDragonwilds/Binaries/Win64/ue4ss/Mods/` (needs [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) installed). See [Spell action bar](#spell-action-bar-client-side-ue4ss-mod).
 
 The mod replaces 19 data tables and 16 world cells, plus the enemy loot table, so another mod replacing any of those assets will conflict. Remove all three files to uninstall. Rebuild and retest after a game update that changes those assets.
 
@@ -31,3 +32,15 @@ Install [retoc v0.1.5](https://github.com/trumank/retoc/releases/tag/v0.1.5) and
 ## Verification still needed
 
 The Linux server loaded the updated pak and existing world without mod-specific asset errors. The earlier dynamic-only build did not increase wolves at a known Dragon's Run spot; that fixed-spawn spot now has two additional points per original in the package. An in-game count is still needed there. The Windows dedicated-server package has not been run. The graveyard corpse cotton has not been seen in game, and the tripled bone and ectoplasm drops have not been checked in game. The plants are level actors, not spawns, so players whose clients lack the pak may not see or harvest them even though the server has them. The 150 m linked chest range has not been checked in game yet; if the build menu still ignores distant chests on a dedicated server, put the Windows pak in the client `~mods` folder as well.
+
+## Spell action bar (client-side UE4SS mod)
+
+[`spell_action_bar/SpellActionBar`](spell_action_bar/SpellActionBar) is a UE4SS Lua mod that ships in the Windows ZIP next to the pak (the Linux server ZIP does not include it). It adds a second hotbar above the vanilla 1-8 bar for wheel spells, on Ctrl+1 to Ctrl+8. Copy the `SpellActionBar` folder from the ZIP into `RSDragonwilds/Binaries/Win64/ue4ss/Mods/` (it ships with `enabled.txt`).
+
+- **Assign:** open the spell wheel (or the spellbook's wheel), point at a spell, press Ctrl+N. The spell's icon appears on the bar. Ctrl+N on a spell already in slot N clears it; Ctrl+M on a spell already bound moves it.
+- **Size and HUD scale:** the game has a HUD scale option (`DominionAccessibilitySettings.HudScale`, set in Settings > Accessibility). The bar does not read it. It measures the drawn vanilla bar every 200 ms and copies its slot size, spacing and on-screen scale, so it follows the HUD scale, resolution and DPI live. Slots have a muted gold frame over a dark backing and use the vanilla slot number font.
+- **Cast:** with the wheel closed, Ctrl+N selects the spell bound to slot N.
+- **No double action:** while Ctrl is held, the vanilla "select slot N" mappings (`IA_Inventory_QuickAccess_SelectSlot1`-`8`) are blanked and restored when Ctrl is released, so Ctrl+N does not also change the held item.
+- **Files:** `bindings.txt` (your slots, written beside `main.lua`), `api_dump.txt` (written once: class and function signatures), `trace.txt` (calls to the spell-selection functions; turn off with `Config.Diagnostics`).
+
+Not yet confirmed in game. `api_dump.txt` from a first session confirmed the function signatures it uses. Still unconfirmed, each logging what it did on failure: reading the hovered wheel slice, loading the soft `SpellIcon`, the widget host and its placement over the vanilla bar, turning the vanilla slot mappings off, and the cast step (`Server_NotifySpellRadialSelected(page)`, then `HighlightSlice` and `SelectSlice` on the HUD wheel widget, checked against `GetCurrentlySelectedSpellData`). A first build crashed the game right after loading in, from an out-parameter Slate call (`LocalToViewport`), which has been removed. A crash guard (`crash_guard.txt`) now starts the next launch in safe mode, with no widgets or input remapping, if the game dies within 30 s of the HUD appearing; delete the file to turn it back on.

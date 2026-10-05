@@ -1,0 +1,744 @@
+---@diagnostic disable: undefined-global
+
+-- SpellActionBar
+-- A second hotbar above the vanilla 1-8 bar for wheel spells, driven by Ctrl+1..8.
+--
+--   * Open the spell wheel (or the spellbook's wheel), point at a spell, press Ctrl+N:
+--     the spell is bound to slot N and its icon appears on the bar. Pressing the same
+--     chord on that spell again clears the slot; binding it to another slot moves it.
+--   * With the wheel closed, Ctrl+N selects the spell bound to slot N.
+--   * While Ctrl is held the vanilla "select slot N" mappings are switched off, so
+--     Ctrl+N does not also change your held item.
+--
+-- Bindings persist in bindings.txt beside this script. The first run writes
+-- api_dump.txt (class/function signatures) and, with Diagnostics on, every call to the
+-- spell-selection functions goes to trace.txt. See README for what is unverified.
+
+local ModName = "[SpellActionBar] "
+
+local Config = {
+    Slots = 8,                  -- Ctrl+1 .. Ctrl+Slots (max 8: the vanilla bar has 8)
+    SlotSize = 56,              -- px per slot
+    SlotGap = 6,                -- px between slots
+    GapAboveHotbar = 10,        -- px between this bar and the vanilla bar
+    FallbackBottomOffset = 130, -- px from screen bottom when the vanilla bar can't be measured
+    ZOrder = 5,
+    ShowEmptySlots = false,     -- false: a slot only appears once a spell is bound to it
+    SuppressVanillaSlots = true,-- disable vanilla 1-8 mappings while Ctrl is held
+    Verbose = true,             -- log how each wheel hover / activation was resolved
+    Diagnostics = true,         -- write api_dump.txt once, trace spell-selection calls
+    PollMs = 50,
+}
+
+local UEHelpers = require("UEHelpers")
+local Core = require("core")
+
+local ScriptDir = (debug.getinfo(1, "S").source:gsub("^@", "")):match("^(.*[\\/])") or ""
+local BindingsFile = ScriptDir .. "bindings.txt"
+local DumpFile = ScriptDir .. "api_dump.txt"
+local TraceFile = ScriptDir .. "trace.txt"
+
+-- helpers ---------------------------------------------------------------
+
+local function log(msg) print(ModName .. msg .. "\n") end
+local function vlog(msg) if Config.Verbose then log(msg) end end
+
+local function valid(obj)
+    if obj == nil then return false end
+    local ok, result = pcall(function() return obj:IsValid() end)
+    return ok and result == true
+end
+
+-- Runs fn; on error logs `what` with the message and returns nil.
+local function try(what, fn, ...)
+    local ok, a, b, c = pcall(fn, ...)
+    if not ok then log(what .. " failed: " .. tostring(a)); return nil end
+    return a, b, c
+end
+
+local function sameObject(a, b)
+    return valid(a) and valid(b) and a:GetAddress() == b:GetAddress()
+end
+
+local function appendFile(path, text)
+    local f = io.open(path, "a")
+    if f then f:write(text); f:close() end
+end
+
+-- persistence -----------------------------------------------------------
+
+local Bindings = {}
+local BindingsDirty = true
+
+local function loadBindings()
+    local f = io.open(BindingsFile, "r")
+    if not f then return end
+    Bindings = Core.parseBindings(f:read("*a"), Config.Slots)
+    f:close()
+end
+
+local function saveBindings()
+    local f = io.open(BindingsFile, "w")
+    if not f then log("cannot write " .. BindingsFile); return end
+    f:write(Core.serializeBindings(Bindings, Config.Slots))
+    f:close()
+end
+
+-- game objects ----------------------------------------------------------
+
+local function getPC()
+    local pc = UEHelpers.GetPlayerController()
+    return valid(pc) and pc or nil
+end
+
+local function getComponent()
+    local all = FindAllOf("SpellcastingComponent")
+    if not all then return nil end
+    local pc = getPC()
+    local fallback
+    for _, c in ipairs(all) do
+        if valid(c) then
+            fallback = fallback or c
+            if pc and sameObject(c.PlayerController, pc) then return c end
+        end
+    end
+    return fallback
+end
+
+local function loadSpell(path)
+    local objectPath = Core.toObjectPath(path)
+    if not objectPath then return nil end
+    local spell = StaticFindObject(objectPath)
+    if not valid(spell) then
+        pcall(LoadAsset, objectPath)
+        spell = StaticFindObject(objectPath)
+    end
+    return valid(spell) and spell or nil
+end
+
+local function spellName(spell)
+    local ok, name = pcall(function() return spell.SpellDisplayName:ToString() end)
+    if ok and name and name ~= "" then return name end
+    return Core.objectPath(spell:GetFullName()) or "?"
+end
+
+-- SpellIcon is a soft object reference; the exact Lua surface for it is not
+-- documented for this UE4SS build, so try each way of turning it into a texture.
+local function iconTexture(spell)
+    local soft = spell.SpellIcon
+    if soft == nil then return nil end
+    local attempts = {
+        function() return soft:Get() end,
+        function() return soft:LoadSynchronous() end,
+        function()
+            local lib = StaticFindObject("/Script/Engine.Default__KismetSystemLibrary")
+            return lib:LoadAsset_Blocking(soft)
+        end,
+        function()
+            local path = soft.AssetPathName and soft.AssetPathName:ToString() or soft:ToString()
+            if not path or path == "" or path == "None" then return nil end
+            local object = StaticFindObject(path)
+            if not valid(object) then pcall(LoadAsset, path); object = StaticFindObject(path) end
+            return object
+        end,
+    }
+    for i, attempt in ipairs(attempts) do
+        local ok, tex = pcall(attempt)
+        if ok and valid(tex) then return tex, i end
+    end
+    return nil
+end
+
+-- spell wheel -----------------------------------------------------------
+
+-- A widget is really showing only if it and every ancestor (through nested
+-- user widgets too) is visible.
+local function chainVisible(widget)
+    local w = widget
+    for _ = 1, 16 do
+        local ok, shown = pcall(function() return w:IsVisible() end)
+        if not ok or not shown then return false end
+        local okParent, parent = pcall(function() return w:GetParent() end)
+        if okParent and valid(parent) then
+            w = parent
+        else
+            -- Root of a nested user widget: the owning user widget is WidgetTree's outer.
+            local okOwner, owner = pcall(function() return w:GetOuter():GetOuter() end)
+            if okOwner and valid(owner) and owner:IsA("/Script/UMG.UserWidget") then w = owner else return true end
+        end
+    end
+    return true
+end
+
+local function openRadial()
+    local all = FindAllOf("SpellcastingRadialBase")
+    if not all then return nil end
+    for _, radial in ipairs(all) do
+        if valid(radial) and chainVisible(radial) then return radial end
+    end
+    return nil
+end
+
+local function sliceTexture(slice)
+    local ok, tex = pcall(function() return slice.SliceIcon.Brush.ResourceObject end)
+    return ok and valid(tex) and tex or nil
+end
+
+-- Returns spellData, nil or nil, reason.
+local function hoveredSpell()
+    local radial = openRadial()
+    if not radial then return nil, "the spell wheel is not open" end
+    local comp = getComponent()
+    if not comp then return nil, "no SpellcastingComponent found" end
+
+    local section = radial.CachedSectionId
+    local slices = radial.Slices
+    if not slices or section >= slices:GetArrayNum() then
+        return nil, "no wheel slice under the pointer (section " .. tostring(section) .. ")"
+    end
+    local slice = slices[section + 1]
+    if not valid(slice) then return nil, "wheel slice " .. section .. " is not valid" end
+
+    local slotNum = slice.SpellSlotNum
+    local per = comp.NumSpellSlotsPerRadial
+    local selected = comp.SelectedSpells
+    local total = selected:GetArrayNum()
+
+    -- SpellSlotNum may be per-radial or global; consider the same slot on every page.
+    local candidates = {}
+    if slotNum >= per then
+        candidates[1] = slotNum
+    else
+        for index = slotNum, total - 1, per do candidates[#candidates + 1] = index end
+    end
+    local found = {}
+    for _, index in ipairs(candidates) do
+        local spell = index < total and selected[index + 1] or nil
+        if valid(spell) then found[#found + 1] = { index = index, spell = spell } end
+    end
+    if #found == 0 then
+        return nil, "wheel slot " .. slotNum .. " is empty (SelectedSpells has " .. total .. " entries)"
+    end
+
+    local pick = found[1]
+    if #found > 1 then
+        local shown = sliceTexture(slice)
+        for _, c in ipairs(found) do
+            if shown and sameObject(iconTexture(c.spell), shown) then pick = c; break end
+        end
+        vlog(("slot %d exists on %d wheel pages; picked index %d by %s"):format(
+            slotNum, #found, pick.index, shown and "icon match" or "first page (icon unreadable)"))
+    end
+    vlog(("hovered: section %d, slot %d, SelectedSpells[%d] = %s"):format(
+        section, slotNum, pick.index, spellName(pick.spell)))
+    return pick.spell
+end
+
+-- vanilla bar suppression -----------------------------------------------
+
+local SlotActionPattern = "^IA_Inventory_QuickAccess_SelectSlot%d$"
+local Suppressed = false
+local SavedMappings = {} -- { { mapping = struct, key = "One" } }
+
+local function ctrlDown(pc)
+    local ok, down = pcall(function() return pc:IsInputKeyDown({ KeyName = FName("LeftControl") }) end)
+    if ok and down then return true end
+    ok, down = pcall(function() return pc:IsInputKeyDown({ KeyName = FName("RightControl") }) end)
+    return ok and down == true
+end
+
+local function rebuildMappings()
+    local sub = FindFirstOf("EnhancedInputLocalPlayerSubsystem")
+    if not valid(sub) then return false end
+    -- bIgnoreAllPressedKeysUntilRelease must be off or movement keys die until released.
+    return pcall(function()
+        sub:RequestRebuildControlMappings({
+            bIgnoreAllPressedKeysUntilRelease = false,
+            bForceImmediately = true,
+            bNotifyUserSettings = false,
+        }, 1)
+    end)
+end
+
+local function setVanillaSlots(off)
+    if off == Suppressed then return end
+    if off then
+        SavedMappings = {}
+        for _, imc in ipairs(FindAllOf("InputMappingContext") or {}) do
+            if valid(imc) then
+                local maps = imc.Mappings
+                for i = 1, maps:GetArrayNum() do
+                    local mapping = maps[i]
+                    local action = mapping.Action
+                    if valid(action) and action:GetFName():ToString():match(SlotActionPattern) then
+                        local keyName = mapping.Key.KeyName:ToString()
+                        local ok = pcall(function() mapping.Key.KeyName = FName("None") end)
+                        if ok then SavedMappings[#SavedMappings + 1] = { mapping = mapping, key = keyName } end
+                    end
+                end
+            end
+        end
+        if #SavedMappings == 0 then
+            log("no vanilla quick-slot mappings found to disable; Ctrl+N will also select the vanilla slot")
+        else
+            vlog("disabled " .. #SavedMappings .. " vanilla slot mappings")
+        end
+    else
+        for _, saved in ipairs(SavedMappings) do
+            pcall(function() saved.mapping.Key.KeyName = FName(saved.key) end)
+        end
+        vlog("restored " .. #SavedMappings .. " vanilla slot mappings")
+        SavedMappings = {}
+    end
+    Suppressed = off
+    rebuildMappings()
+end
+
+-- bar widget ------------------------------------------------------------
+
+local Bar = { host = nil, slots = {}, visible = nil, applied = nil }
+
+local FrameColor = { R = 0.62, G = 0.50, B = 0.28, A = 0.95 } -- muted gold frame
+local BackColor = { R = 0.03, G = 0.03, B = 0.04, A = 0.78 }
+
+local HostClassPaths = {
+    "/Game/UI/Common/WBP_IconImage.WBP_IconImage_C",
+    "/Game/UI/Common/WBP_DomTextBlock.WBP_DomTextBlock_C",
+}
+
+local function findHostClass()
+    for _, path in ipairs(HostClassPaths) do
+        local class = StaticFindObject(path)
+        if not valid(class) then pcall(LoadAsset, path); class = StaticFindObject(path) end
+        if valid(class) then return class, path end
+    end
+    return nil
+end
+
+-- Sizes are placeholders: applyMetrics() resizes everything to match the vanilla bar.
+local function buildBar(pc)
+    local hostClass, hostPath = findHostClass()
+    if not hostClass then log("no concrete widget class available to host the bar"); return false end
+    local lib = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local host = lib:Create(pc, hostClass, pc)
+    if not valid(host) then log("WidgetBlueprintLibrary:Create failed for " .. hostPath); return false end
+    local tree = host.WidgetTree
+    if not valid(tree) then log("host widget has no WidgetTree"); return false end
+
+    local function make(name)
+        return StaticConstructObject(StaticFindObject("/Script/UMG." .. name), tree)
+    end
+
+    local row = make("HorizontalBox")
+    local slots = {}
+    for i = 1, Config.Slots do
+        local size = make("SizeBox")
+        local overlay = make("Overlay")
+        size:SetContent(overlay)
+
+        local frame = make("Image")
+        frame:SetColorAndOpacity(FrameColor)
+        local back = make("Image")
+        back:SetColorAndOpacity(BackColor)
+        local icon = make("Image")
+        local label = make("TextBlock")
+        label:SetText(FText(Core.chordLabel(i)))
+        pcall(function()
+            label:SetShadowOffset({ X = 1, Y = 1 })
+            label:SetShadowColorAndOpacity({ R = 0, G = 0, B = 0, A = 0.9 })
+        end)
+
+        overlay:AddChildToOverlay(frame)
+        local backSlot = overlay:AddChildToOverlay(back)
+        local iconSlot = overlay:AddChildToOverlay(icon)
+        local labelSlot = overlay:AddChildToOverlay(label)
+        pcall(function()
+            labelSlot:SetHorizontalAlignment(1) -- left
+            labelSlot:SetVerticalAlignment(1)   -- top
+        end)
+
+        local rowSlot = row:AddChildToHorizontalBox(size)
+        slots[i] = { size = size, icon = icon, label = label, backSlot = backSlot,
+                     iconSlot = iconSlot, labelSlot = labelSlot, rowSlot = rowSlot }
+    end
+
+    tree.RootWidget = row
+    host:AddToViewport(Config.ZOrder)
+    host:SetVisibility(3) -- HitTestInvisible: never steal clicks from the game
+    -- Scale about the bottom centre so the bar stays seated above the vanilla bar.
+    pcall(function() host:SetRenderTransformPivot({ X = 0.5, Y = 1 }) end)
+    Bar.host, Bar.slots, Bar.visible, Bar.applied = host, slots, true, nil
+    log("bar created (host " .. hostPath .. ")")
+    return true
+end
+
+-- Vanilla bar: the visible QuickAccessBarBase lowest on screen (the HUD one).
+local function findVanillaBar(pc)
+    local best, bestY
+    for _, bar in ipairs(FindAllOf("QuickAccessBarBase") or {}) do
+        if valid(bar) and chainVisible(bar) then
+            local ok, y = pcall(function()
+                local geo = bar:GetCachedGeometry()
+                local abs = StaticFindObject("/Script/UMG.Default__SlateBlueprintLibrary"):GetAbsolutePosition(geo)
+                return abs.Y
+            end)
+            y = ok and y or 0
+            if not best or y > bestY then best, bestY = bar, y end
+        end
+    end
+    return best
+end
+
+-- Reads the vanilla bar's live layout. The game's HUD scale option
+-- (DominionAccessibilitySettings.HudScale) changes how big the vanilla bar is drawn but
+-- not our separate viewport widget, so instead of reading the setting we measure the
+-- drawn bar: `scale` is local-to-screen units, `dpi` the viewport's own scale (which
+-- our widget already gets), so our widget needs an extra render scale of scale/dpi.
+-- Returns nil if anything can't be measured.
+local function measure(pc, vanilla)
+    local lib = StaticFindObject("/Script/UMG.Default__SlateBlueprintLibrary")
+    local ok, m = pcall(function()
+        local geo = vanilla:GetCachedGeometry()
+        local size, abs = lib:GetLocalSize(geo), lib:GetAbsoluteSize(geo)
+        if not size.X or size.X <= 0 or not abs.X or abs.X <= 0 then return nil end
+        local scale = abs.X / size.X
+
+        local dpi = 1
+        pcall(function()
+            dpi = StaticFindObject("/Script/UMG.Default__WidgetLayoutLibrary"):GetViewportScale(pc)
+        end)
+        if type(dpi) ~= "number" or dpi <= 0 then dpi = 1 end
+
+        -- Top-centre of the vanilla bar in viewport units. Absolute geometry is in screen
+        -- units (local * scale, DPI included); SetPositionInViewport wants it divided by
+        -- the viewport DPI scale. This assumes the game window's origin is the viewport's
+        -- (borderless/fullscreen). No out-param Slate calls: LocalToViewport crashed UE4SS.
+        local origin = lib:GetAbsolutePosition(geo)
+        local viewportX, viewportY = (origin.X + abs.X / 2) / dpi, origin.Y / dpi
+        if not (viewportX > 0) or not (viewportY > 0) then return nil end
+
+        -- slot size and pitch in the bar's own units, from the first two vanilla slots
+        local slot, pitch
+        pcall(function()
+            local slots = vanilla.QuickAccessSlots
+            if slots:GetArrayNum() >= 2 then
+                local g1, g2 = slots[1]:GetCachedGeometry(), slots[2]:GetCachedGeometry()
+                slot = lib:GetAbsoluteSize(g1).X / scale
+                pitch = (lib:GetAbsolutePosition(g2).X - lib:GetAbsolutePosition(g1).X) / scale
+            end
+        end)
+        if not slot or slot < 8 then slot = Config.SlotSize end
+        if not pitch or pitch < slot then pitch = slot + Config.SlotGap end
+
+        local k = scale / dpi
+        if k < 0.25 or k > 4 then return nil end
+        return { x = viewportX, y = viewportY, k = k, slot = slot, pitch = pitch, scale = scale, dpi = dpi }
+    end)
+    return ok and m or nil
+end
+
+-- Resizes the bar to the vanilla slot size and render-scales it to the HUD scale.
+local function applyMetrics(m, vanilla)
+    local key = ("%.1f|%.1f|%.3f"):format(m.slot, m.pitch, m.k)
+    if key == Bar.applied then return end
+    local half = (m.pitch - m.slot) / 2
+    local inset = math.max(1, m.slot * 0.04)       -- frame thickness
+    local iconInset = m.slot * 0.10
+    for i = 1, Config.Slots do
+        local ui = Bar.slots[i]
+        ui.size:SetWidthOverride(m.slot)
+        ui.size:SetHeightOverride(m.slot)
+        pcall(function()
+            ui.rowSlot:SetPadding({ Left = half, Top = 0, Right = half, Bottom = 0 })
+            ui.backSlot:SetPadding({ Left = inset, Top = inset, Right = inset, Bottom = inset })
+            ui.iconSlot:SetPadding({ Left = iconInset, Top = iconInset, Right = iconInset, Bottom = iconInset })
+            ui.labelSlot:SetPadding({ Left = inset + m.slot * 0.05, Top = inset, Right = 0, Bottom = 0 })
+        end)
+        pcall(function()
+            local font = ui.label.Font
+            font.Size = math.max(8, math.floor(m.slot * 0.24))
+            ui.label:SetFont(font)
+        end)
+    end
+    Bar.host:SetRenderScale({ X = m.k, Y = m.k })
+    Bar.applied = key
+    Bar.lastX = nil -- force re-place: the gap above the bar scales too
+    vlog(("layout: slot %.1f, pitch %.1f, extra scale %.3f (screen %.3f / viewport %.3f)"):format(
+        m.slot, m.pitch, m.k, m.scale, m.dpi))
+end
+
+local function place(m)
+    local host = Bar.host
+    if m then
+        local y = m.y - Config.GapAboveHotbar * m.k
+        if type(Bar.lastX) == "number" and math.abs(Bar.lastX - m.x) < 0.5 and math.abs(Bar.lastY - y) < 0.5 then return end
+        host:SetAnchorsInViewport({ Minimum = { X = 0, Y = 0 }, Maximum = { X = 0, Y = 0 } })
+        host:SetAlignmentInViewport({ X = 0.5, Y = 1 })
+        host:SetPositionInViewport({ X = m.x, Y = y }, false)
+        Bar.lastX, Bar.lastY = m.x, y
+    elseif Bar.lastX ~= "fallback" then
+        host:SetAnchorsInViewport({ Minimum = { X = 0.5, Y = 1 }, Maximum = { X = 0.5, Y = 1 } })
+        host:SetAlignmentInViewport({ X = 0.5, Y = 1 })
+        host:SetPositionInViewport({ X = 0, Y = -Config.FallbackBottomOffset }, false)
+        Bar.lastX, Bar.lastY = "fallback", "fallback"
+        log("could not measure the vanilla bar; using fixed offset " .. Config.FallbackBottomOffset .. " px")
+    end
+end
+
+local function refreshBar()
+    for i = 1, Config.Slots do
+        local ui = Bar.slots[i]
+        local spell = Bindings[i] and loadSpell(Bindings[i]) or nil
+        local show = spell ~= nil
+        if spell then
+            local tex = iconTexture(spell)
+            if tex then
+                ui.icon:SetBrushFromTexture(tex, false)
+                ui.icon:SetColorAndOpacity({ R = 1, G = 1, B = 1, A = 1 })
+                ui.icon:SetVisibility(3)
+            else
+                ui.icon:SetVisibility(1)
+                log("no icon texture for " .. spellName(spell) .. "; slot " .. i .. " shows its key label only")
+            end
+        else
+            ui.icon:SetVisibility(1)
+        end
+        ui.size:SetVisibility((show or Config.ShowEmptySlots) and 3 or 1)
+    end
+    BindingsDirty = false
+end
+
+local function syncBar()
+    local pc = getPC()
+    if not pc then Bar.host = nil; return end
+    if not valid(Bar.host) then
+        Bar.host = nil
+        if not try("building the bar", buildBar, pc) then return end
+        BindingsDirty = true
+    end
+    local vanilla = findVanillaBar(pc)
+    local want = vanilla ~= nil
+    if want ~= Bar.visible then
+        Bar.host:SetVisibility(want and 3 or 1)
+        Bar.visible = want
+    end
+    if want then
+        local m = measure(pc, vanilla)
+        if m then try("applying layout", applyMetrics, m, vanilla) end
+        place(m)
+    end
+    if BindingsDirty then refreshBar() end
+end
+
+-- activation ------------------------------------------------------------
+
+local function currentlySelected(comp)
+    local ok, spell = pcall(function() return comp:GetCurrentlySelectedSpellData() end)
+    return ok and spell or nil
+end
+
+local function paramCount(ufunction)
+    local n = 0
+    pcall(function() ufunction:ForEachProperty(function() n = n + 1 end) end)
+    return n
+end
+
+-- Selects `spell` the way the wheel does, using the signatures in api_dump.txt:
+-- Server_NotifySpellRadialSelected(RadialIndex) picks the wheel page, then the HUD wheel
+-- widget is driven like a player would (RadialMenuBase:HighlightSlice(SliceId) then
+-- :SelectSlice()). Afterwards GetCurrentlySelectedSpellData must report the spell;
+-- anything else is logged with what was seen. Client_NotifySelectedSpell(SpellData, slot)
+-- is the server's confirmation back to the client, so it is traced, never called.
+local function activate(slot)
+    local path = Bindings[slot]
+    if not path then vlog("slot " .. slot .. " is empty"); return end
+    local spell = loadSpell(path)
+    if not spell then log("slot " .. slot .. ": spell asset not loadable: " .. path); return end
+    local comp = getComponent()
+    if not comp then log("no SpellcastingComponent; are you in a world?"); return end
+
+    local selected = comp.SelectedSpells
+    local index = Core.findOnWheel(selected:GetArrayNum(), function(i) return selected[i] end,
+        function(entry) return sameObject(entry, spell) end)
+    if not index then
+        log(("slot %d: %s is no longer on your spell wheel"):format(slot, spellName(spell)))
+        return
+    end
+    local radial, inRadial = Core.wheelPosition(index, comp.NumSpellSlotsPerRadial)
+    vlog(("activating %s: wheel index %d (radial %d, slot %d)"):format(spellName(spell), index, radial, inRadial))
+
+    local pageFn = StaticFindObject("/Script/Dominion.SpellcastingComponent:Server_NotifySpellRadialSelected")
+    if not valid(pageFn) or paramCount(pageFn) ~= 1 then
+        log("SpellcastingComponent:Server_NotifySpellRadialSelected missing or changed (see api_dump.txt)")
+        return
+    end
+    local wheel
+    for _, r in ipairs(FindAllOf("SpellcastingRadialBase") or {}) do
+        if valid(r) and not r.bIsSpellbookInstance then wheel = r; break end
+    end
+    if not wheel then log("HUD spell wheel widget not found"); return end
+    local ok, err = pcall(function()
+        comp:Server_NotifySpellRadialSelected(radial)
+        wheel:HighlightSlice(inRadial)
+        wheel:SelectSlice()
+    end)
+    if not ok then log("selecting the slice failed: " .. tostring(err)); return end
+
+    local now = currentlySelected(comp)
+    if sameObject(now, spell) then
+        vlog("selected " .. spellName(spell))
+    elseif now == nil then
+        log("selection calls ran but GetCurrentlySelectedSpellData is unavailable; cannot confirm " .. spellName(spell))
+    else
+        log(("selection calls ran but the selected spell is %s, not %s"):format(spellName(now), spellName(spell)))
+    end
+end
+
+-- assignment ------------------------------------------------------------
+
+local function assign(slot)
+    local spell, reason = hoveredSpell()
+    if not spell then log("cannot bind slot " .. slot .. ": " .. reason); return end
+    local path = Core.objectPath(spell:GetFullName())
+    if not path then log("unexpected spell name " .. spell:GetFullName()); return end
+    local result, previous = Core.bind(Bindings, slot, path, Config.Slots)
+    saveBindings()
+    BindingsDirty = true
+    local name = spellName(spell)
+    if result == "unbound" then log(("Ctrl+%d cleared (%s)"):format(slot, name))
+    elseif result == "moved" then log(("%s moved from Ctrl+%d to Ctrl+%d"):format(name, previous, slot))
+    else log(("%s bound to Ctrl+%d"):format(name, slot)) end
+end
+
+local function onChord(slot)
+    if openRadial() then assign(slot) else activate(slot) end
+end
+
+-- diagnostics -----------------------------------------------------------
+
+local DumpClasses = {
+    "SpellcastingComponent", "SpellcastingUIAPI", "SpellcastingMainPanel", "SpellcastingRadialBase",
+    "SpellcastingRadialSlice", "RadialMenuBase", "QuickAccessBarBase", "QuickAccessBarSlotBase",
+    "SpellSlotBase", "UtilitySpellData", "UtilitySpellDataSubsystem", "DomSpellBook",
+}
+local StopAt = { "/Script/CoreUObject", "/Script/Engine", "/Script/UMG", "/Script/Slate", "/Script/CommonUI" }
+
+local function dumpClass(out, class, depth)
+    out[#out + 1] = "  class " .. class:GetFullName()
+    pcall(function()
+        class:ForEachFunction(function(fn)
+            local params = {}
+            pcall(function()
+                fn:ForEachProperty(function(p)
+                    params[#params + 1] = p:GetFName():ToString() .. ":" .. p:GetClass():GetFName():ToString()
+                end)
+            end)
+            out[#out + 1] = "    fn " .. fn:GetFName():ToString() .. "(" .. table.concat(params, ", ") .. ")"
+        end)
+    end)
+    if depth < 6 then
+        local super = class:GetSuperStruct()
+        if valid(super) then
+            local name = super:GetFullName()
+            for _, prefix in ipairs(StopAt) do if name:find(prefix, 1, true) then return end end
+            dumpClass(out, super, depth + 1)
+        end
+    end
+end
+
+local function writeApiDump()
+    if io.open(DumpFile, "r") then return end
+    local out = { "== SpellActionBar API dump ==" }
+    for _, name in ipairs(DumpClasses) do
+        out[#out + 1] = "### " .. name
+        local class = StaticFindObject("/Script/Dominion." .. name)
+        if valid(class) then dumpClass(out, class, 0) else out[#out + 1] = "  not found" end
+    end
+    local f = io.open(DumpFile, "w")
+    if f then f:write(table.concat(out, "\n") .. "\n"); f:close(); log("wrote " .. DumpFile) end
+end
+
+local TracedFunctions = {
+    "Client_NotifySelectedSpell", "Client_NotifyAllSelectedSpells", "Server_NotifySpellRadialSelected",
+    "Server_SwapSpells", "Server_UpdateSpellData", "Server_SpawnSpellPlacementVisualizer",
+    "Client_CancelSpellcasting", "CancelSpellcasting", "OnPlaceSpellInputActionTriggered", "SelectSlice",
+}
+
+local function paramText(param)
+    local ok, value = pcall(function() return param:get() end)
+    if not ok then return "?" end
+    if type(value) == "userdata" then
+        local named, full = pcall(function() return value:GetFullName() end)
+        return named and full or tostring(value)
+    end
+    return tostring(value)
+end
+
+local function installTrace()
+    for _, name in ipairs(TracedFunctions) do
+        local path = "/Script/Dominion.SpellcastingComponent:" .. name
+        if name == "SelectSlice" then path = "/Script/Dominion.RadialMenuBase:SelectSlice" end
+        local ok, err = pcall(RegisterHook, path, function(_, ...)
+            local parts = {}
+            for i, p in ipairs({ ... }) do parts[i] = paramText(p) end
+            appendFile(TraceFile, ("%s(%s)\n"):format(name, table.concat(parts, ", ")))
+        end)
+        if not ok then log("cannot trace " .. name .. ": " .. tostring(err)) end
+    end
+end
+
+-- startup ---------------------------------------------------------------
+
+if Config.Slots > 8 or Config.Slots < 1 then Config.Slots = 8 end
+loadBindings()
+
+local KeyForSlot = { Key.ONE, Key.TWO, Key.THREE, Key.FOUR, Key.FIVE, Key.SIX, Key.SEVEN, Key.EIGHT }
+for slot = 1, Config.Slots do
+    RegisterKeyBind(KeyForSlot[slot], { ModifierKey.CONTROL }, function()
+        ExecuteInGameThread(function() try("Ctrl+" .. slot, onChord, slot) end)
+    end)
+end
+
+if Config.Diagnostics then installTrace() end
+
+-- Crash guard: the UI code runs against engine internals that are unverified. The guard
+-- file exists from the first time the vanilla bar is measured until 30 s later. If the
+-- game dies in that window the file survives, and the next launch starts in safe mode
+-- (no widgets, no input remapping) instead of crash-looping.
+-- Delete crash_guard.txt to leave safe mode.
+local GuardFile = ScriptDir .. "crash_guard.txt"
+local SafeMode = io.open(GuardFile, "r") ~= nil
+if SafeMode then
+    log("SAFE MODE: the previous session crashed right after loading in. The UI and input changes are off. Delete " .. GuardFile .. " to try again.")
+end
+local guardAt = nil
+local guardDone = false
+
+local dumped = false
+local ticks = 0
+local function tick()
+    ticks = ticks + 1
+    local pc = getPC()
+    if pc then
+        if Config.Diagnostics and not dumped then dumped = true; try("api dump", writeApiDump) end
+        if SafeMode then return end
+        if not guardDone and not guardAt and #(FindAllOf("QuickAccessBarBase") or {}) > 0 then
+            local f = io.open(GuardFile, "w")
+            if f then f:write("armed; removed after 30s of stable play\n"); f:close() end
+            guardAt = ticks
+        end
+        if guardAt and not guardDone and (ticks - guardAt) * Config.PollMs >= 30000 then
+            os.remove(GuardFile)
+            guardDone = true
+        end
+        if Config.SuppressVanillaSlots then try("vanilla slot toggle", setVanillaSlots, ctrlDown(pc)) end
+        if ticks % 4 == 0 or BindingsDirty then try("bar sync", syncBar) end
+    end
+end
+
+LoopAsync(Config.PollMs, function()
+    ExecuteInGameThread(tick)
+    return false
+end)
+
+log(("loaded: %d bindings, Ctrl+1..%d"):format((function() local n = 0 for _ in pairs(Bindings) do n = n + 1 end return n end)(), Config.Slots))

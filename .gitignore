@@ -29,3 +29,7 @@ spawn_tables/bin/
 spawn_tables/obj/
 ore_yield/bin/
 ore_yield/obj/
+spell_action_bar/**/bindings.txt
+spell_action_bar/**/api_dump.txt
+spell_action_bar/**/trace.txt
+spell_action_bar/**/crash_guard.txt

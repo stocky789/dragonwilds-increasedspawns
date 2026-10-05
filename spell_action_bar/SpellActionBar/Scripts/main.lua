@@ -1,14 +1,14 @@
 ---@diagnostic disable: undefined-global
 
 -- SpellActionBar
--- A second hotbar above the vanilla 1-8 bar for wheel spells, driven by Ctrl+1..8.
+-- A second hotbar under the vanilla 1-8 bar for wheel spells, driven by Alt+1..8 or numpad 1..8.
 --
---   * Open the spell wheel (or the spellbook's wheel), point at a spell, press Ctrl+N:
---     the spell is bound to slot N and its icon appears on the bar. Pressing the same
---     chord on that spell again clears the slot; binding it to another slot moves it.
---   * With the wheel closed, Ctrl+N selects the spell bound to slot N.
---   * While Ctrl is held the vanilla "select slot N" mappings are switched off, so
---     Ctrl+N does not also change your held item.
+--   * Open the spell wheel (or the spellbook's wheel), point at a spell, press Alt+N (or
+--     numpad N): the spell is bound to slot N and its icon appears on the bar. Pressing the
+--     same key on that spell again clears the slot; binding it to another slot moves it.
+--   * With the wheel closed, Alt+N / numpad N selects the spell bound to slot N.
+--   * While Alt is held the vanilla "select slot N" mappings are switched off, so
+--     Alt+N does not also change your held item. (Ctrl is dodge and Shift is sprint.)
 --
 -- Bindings persist in bindings.txt beside this script. The first run writes
 -- api_dump.txt (class/function signatures) and, with Diagnostics on, every call to the
@@ -17,17 +17,18 @@
 local ModName = "[SpellActionBar] "
 
 local Config = {
-    Slots = 8,                  -- Ctrl+1 .. Ctrl+Slots (max 8: the vanilla bar has 8)
+    Slots = 8,                  -- slots 1..Slots (max 8: the vanilla bar has 8)
     SlotSize = 60,              -- px per slot at HUD scale 1.0 (match the vanilla slots)
     SlotGap = 6,                -- px between slots at HUD scale 1.0
     Left = 68,                  -- the vanilla hotbar is top-left: this bar's left edge, at HUD scale 1.0
-    Top = 118,                  -- and its top edge, so it sits just under the vanilla bar
+    Top = 128,                  -- and its top edge: just clear of the vanilla bar's bottom edge
     ZOrder = 5,
     ShowEmptySlots = true,      -- false: a slot only appears once a spell is bound to it
-    SuppressVanillaSlots = true,-- disable vanilla 1-8 mappings while Ctrl is held
+    SuppressVanillaSlots = true,-- disable vanilla 1-8 mappings while Alt is held
     Verbose = true,             -- log how each wheel hover / activation was resolved
     Diagnostics = true,         -- write api_dump.txt once, trace spell-selection calls
-    PollMs = 100,
+    PollMs = 30,                -- input poll; the bar/state work runs every SlowEvery-th poll
+    SlowEvery = 7,
 }
 
 local UEHelpers = require("UEHelpers")
@@ -52,7 +53,10 @@ end
 -- Breadcrumb: the step about to run goes to crumb.txt first. If the game dies inside
 -- UE4SS, the file names the last step started.
 local CrumbFile = ScriptDir .. "crumb.txt"
+local lastCrumb
 local function crumb(step)
+    if step == lastCrumb then return end
+    lastCrumb = step
     local f = io.open(CrumbFile, "w")
     if f then f:write(step .. "\n"); f:close() end
 end
@@ -249,10 +253,11 @@ local SlotActionPattern = "^IA_Inventory_QuickAccess_SelectSlot%d$"
 local Suppressed = false
 local SavedMappings = {} -- { { mapping = struct, key = "One" } }
 
-local function ctrlDown(pc)
-    local ok, down = pcall(function() return pc:IsInputKeyDown({ KeyName = FName("LeftControl") }) end)
+-- Ctrl is dodge and Shift is sprint in this game, so the modifier is Alt.
+local function modifierDown(pc)
+    local ok, down = pcall(function() return pc:IsInputKeyDown({ KeyName = FName("LeftAlt") }) end)
     if ok and down then return true end
-    ok, down = pcall(function() return pc:IsInputKeyDown({ KeyName = FName("RightControl") }) end)
+    ok, down = pcall(function() return pc:IsInputKeyDown({ KeyName = FName("RightAlt") }) end)
     return ok and down == true
 end
 
@@ -288,7 +293,7 @@ local function setVanillaSlots(off)
             end
         end
         if #SavedMappings == 0 then
-            log("no vanilla quick-slot mappings found to disable; Ctrl+N will also select the vanilla slot")
+            log("no vanilla quick-slot mappings found to disable; Alt+N will also select the vanilla slot")
         else
             vlog("disabled " .. #SavedMappings .. " vanilla slot mappings")
         end
@@ -307,8 +312,19 @@ end
 
 local Bar = { host = nil, slots = {}, visible = nil, applied = nil }
 
-local FrameColor = { R = 0.62, G = 0.50, B = 0.28, A = 0.95 } -- muted gold frame
-local BackColor = { R = 0.03, G = 0.03, B = 0.04, A = 0.78 }
+-- Vanilla slot look: its own slot-background texture (T_Common_ItemSlotsBackground) and
+-- Amiri font, tinted purple instead of the vanilla dark grey.
+local FrameColor = { R = 0.66, G = 0.48, B = 0.90, A = 0.85 } -- light violet rim
+local BackTint = { R = 0.50, G = 0.26, B = 0.78, A = 1.0 }    -- tint over the vanilla texture
+local BackPlain = { R = 0.20, G = 0.09, B = 0.32, A = 0.88 }  -- used if the texture can't load
+local BackTexturePath = "/Game/Art/UI/Common/T_Common_ItemSlotsBackground.T_Common_ItemSlotsBackground"
+local FontPath = "/Game/UI/Fonts/Amiri-Regular_Font.Amiri-Regular_Font"
+
+local function loadByPath(path)
+    local object = StaticFindObject(path)
+    if not valid(object) then pcall(LoadAsset, path); object = StaticFindObject(path) end
+    return valid(object) and object or nil
+end
 
 local HostClassPaths = {
     "/Game/UI/Common/WBP_IconImage.WBP_IconImage_C",
@@ -338,6 +354,9 @@ local function buildBar(pc)
         return StaticConstructObject(StaticFindObject("/Script/UMG." .. name), tree)
     end
 
+    local backTexture = loadByPath(BackTexturePath)
+    Bar.fontObj = loadByPath(FontPath)
+    if not backTexture then log("vanilla slot background texture not loadable; using a plain purple backing") end
     local row = make("HorizontalBox")
     local slots = {}
     for i = 1, Config.Slots do
@@ -348,7 +367,12 @@ local function buildBar(pc)
         local frame = make("Image")
         frame:SetColorAndOpacity(FrameColor)
         local back = make("Image")
-        back:SetColorAndOpacity(BackColor)
+        if backTexture then
+            back:SetBrushFromTexture(backTexture, false)
+            back:SetColorAndOpacity(BackTint)
+        else
+            back:SetColorAndOpacity(BackPlain)
+        end
         local icon = make("Image")
         local label = make("TextBlock")
         label:SetText(FText(Core.chordLabel(i)))
@@ -428,6 +452,7 @@ local function applyLayout(k)
         pcall(function()
             local font = ui.label.Font
             font.Size = math.max(8, math.floor(slot * 0.24))
+            if Bar.fontObj then font.FontObject = Bar.fontObj end
             ui.label:SetFont(font)
         end)
     end
@@ -569,9 +594,9 @@ local function assign(slot)
     saveBindings()
     BindingsDirty = true
     local name = spellName(spell)
-    if result == "unbound" then log(("Ctrl+%d cleared (%s)"):format(slot, name))
-    elseif result == "moved" then log(("%s moved from Ctrl+%d to Ctrl+%d"):format(name, previous, slot))
-    else log(("%s bound to Ctrl+%d"):format(name, slot)) end
+    if result == "unbound" then log(("slot %d cleared (%s)"):format(slot, name))
+    elseif result == "moved" then log(("%s moved from slot %d to slot %d"):format(name, previous, slot))
+    else log(("%s bound to slot %d"):format(name, slot)) end
 end
 
 local function onChord(slot)
@@ -656,11 +681,22 @@ end
 if Config.Slots > 8 or Config.Slots < 1 then Config.Slots = 8 end
 loadBindings()
 
-local KeyForSlot = { Key.ONE, Key.TWO, Key.THREE, Key.FOUR, Key.FIVE, Key.SIX, Key.SEVEN, Key.EIGHT }
-for slot = 1, Config.Slots do
-    RegisterKeyBind(KeyForSlot[slot], { ModifierKey.CONTROL }, function()
-        ExecuteInGameThread(function() try("Ctrl+" .. slot, onChord, slot) end)
-    end)
+-- Slot N fires on Alt+N (number row) or on numpad N with no modifier. Polled, not
+-- registered with RegisterKeyBind: its modifier callbacks never fired in game. Number-row
+-- keys are only read while Alt is held; numpad keys are always read.
+local DigitKeys = { "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight" }
+local NumpadKeys = { "NumPadOne", "NumPadTwo", "NumPadThree", "NumPadFour", "NumPadFive", "NumPadSix", "NumPadSeven", "NumPadEight" }
+local WasDown = { digit = {}, numpad = {} }
+local function keyDown(pc, name)
+    local ok, down = pcall(function() return pc:IsInputKeyDown({ KeyName = FName(name) }) end)
+    return ok and down == true
+end
+local function pollKeys(pc, names, wasDown, use)
+    for slot = 1, Config.Slots do
+        local down = use and keyDown(pc, names[slot])
+        if down and not wasDown[slot] then try("slot " .. slot, onChord, slot) end
+        wasDown[slot] = down
+    end
 end
 
 if Config.Diagnostics then installTrace() end
@@ -680,24 +716,35 @@ local guardDone = false
 
 local dumped = false
 local ticks = 0
+local cachedPC = nil
 local function tick()
     ticks = ticks + 1
-    local pc = getPC()
-    if pc then
-        if Config.Diagnostics and not dumped then dumped = true; try("api dump", writeApiDump) end
-        if SafeMode then return end
-        if not guardDone and not guardAt and #(FindAllOf("QuickAccessBarBase") or {}) > 0 then
-            local f = io.open(GuardFile, "w")
-            if f then f:write("armed; removed after 30s of stable play\n"); f:close() end
-            guardAt = ticks
-        end
-        if guardAt and not guardDone and (ticks - guardAt) * Config.PollMs >= 30000 then
-            os.remove(GuardFile)
-            guardDone = true
-        end
-        if Config.SuppressVanillaSlots then try("vanilla slot toggle", setVanillaSlots, ctrlDown(pc)) end
-        if ticks % 4 == 0 or BindingsDirty then try("bar sync", syncBar) end
+    local slow = ticks % Config.SlowEvery == 0
+    if slow or not valid(cachedPC) then cachedPC = getPC() end
+    local pc = cachedPC
+    if not pc then return end
+    if SafeMode then
+        if slow and Config.Diagnostics and not dumped then dumped = true; try("api dump", writeApiDump) end
+        return
     end
+
+    local alt = modifierDown(pc)
+    if Config.SuppressVanillaSlots then try("vanilla slot toggle", setVanillaSlots, alt) end
+    pollKeys(pc, DigitKeys, WasDown.digit, alt)
+    pollKeys(pc, NumpadKeys, WasDown.numpad, true)
+
+    if not slow and not BindingsDirty then return end
+    if Config.Diagnostics and not dumped then dumped = true; try("api dump", writeApiDump) end
+    if not guardDone and not guardAt and #(FindAllOf("QuickAccessBarBase") or {}) > 0 then
+        local f = io.open(GuardFile, "w")
+        if f then f:write("armed; removed after 30s of stable play\n"); f:close() end
+        guardAt = ticks
+    end
+    if guardAt and not guardDone and (ticks - guardAt) * Config.PollMs >= 30000 then
+        os.remove(GuardFile)
+        guardDone = true
+    end
+    try("bar sync", syncBar)
 end
 
 LoopAsync(Config.PollMs, function()
@@ -705,4 +752,4 @@ LoopAsync(Config.PollMs, function()
     return false
 end)
 
-log(("loaded: %d bindings, Ctrl+1..%d"):format((function() local n = 0 for _ in pairs(Bindings) do n = n + 1 end return n end)(), Config.Slots))
+log(("loaded: %d bindings, Alt+1..%d / numpad 1..%d"):format((function() local n = 0 for _ in pairs(Bindings) do n = n + 1 end return n end)(), Config.Slots, Config.Slots))

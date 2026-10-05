@@ -64,7 +64,7 @@ function Core.toObjectPath(path)
 end
 
 function Core.chordLabel(slot)
-    return "^" .. slot
+    return "Alt+" .. slot
 end
 
 -- Finds a spell's 0-based wheel index. `sameSpell(entry)` decides a match, so
